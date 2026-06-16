@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="MakePay">
+  <rect width="48" height="48" rx="10" fill="#111827"/>
+  <path d="M12 33V15h5.2l6.8 10.8L30.8 15H36v18h-5.2V23.2l-4.7 7.2h-4.2l-4.7-7.2V33H12Z" fill="#fff"/>
+  <path d="M35.5 35.5H12.5v-3.2h23v3.2Z" fill="#51b13e"/>
+</svg>

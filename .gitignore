@@ -1,0 +1,5 @@
+BTCPayServer.Plugins.MakePay/bin/
+BTCPayServer.Plugins.MakePay/obj/
+bin/
+packed/
+submodules/

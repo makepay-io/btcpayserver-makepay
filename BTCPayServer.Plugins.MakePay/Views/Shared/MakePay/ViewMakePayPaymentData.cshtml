@@ -1,0 +1,50 @@
+@using BTCPayServer.Plugins.MakePay.PaymentHandler
+@using BTCPayServer.Services
+@using BTCPayServer.Services.Invoices
+@inject DisplayFormatter DisplayFormatter
+@inject PaymentMethodHandlerDictionary Handlers
+@model BTCPayServer.Models.InvoicingModels.InvoiceDetailsModel
+
+@{
+    var payments = Model
+        .Payments
+        .Select(payment =>
+        {
+            if (Handlers.TryGet(payment.PaymentMethodId) is not MakePayPaymentMethodHandler handler)
+            {
+                return null;
+            }
+
+            return handler.ParsePaymentDetails(payment.Details) as MakePayPaymentData;
+        })
+        .Where(payment => payment != null)
+        .ToList();
+}
+
+@if (payments.Any())
+{
+    <section>
+        <h5>MakePay Payments</h5>
+        <div class="invoice-payments table-responsive mt-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                <tr>
+                    <th class="w-175px">Session</th>
+                    <th class="w-150px">Asset</th>
+                    <th class="w-150px">Status</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var payment in payments)
+                {
+                    <tr>
+                        <td><vc:truncate-center text="@payment!.SessionId" classes="truncate-center-id" /></td>
+                        <td>@(payment.SellAsset ?? "Unknown")</td>
+                        <td>@payment.Status</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}

@@ -1,0 +1,641 @@
+@model BTCPayServer.Models.InvoicingModels.CheckoutModel
+
+<template id="MakePayCheckout">
+    <div class="payment-box makepay-checkout">
+        <div v-if="error" class="alert alert-danger mb-3">{{ error }}</div>
+        <div v-if="success" class="alert alert-success mb-3">{{ success }}</div>
+
+        <div v-if="entryStep">
+            <div class="mb-3">
+                <label class="form-label" for="makepay-asset">Pay with</label>
+                <select id="makepay-asset"
+                        class="form-select"
+                        v-model="selectedAsset"
+                        v-on:change="resetQuote">
+                    <option value="" disabled>Select currency</option>
+                    <option v-for="token in tokens" :key="token.identifier" :value="token.identifier">
+                        {{ tokenLabel(token) }}
+                    </option>
+                </select>
+            </div>
+
+            <div v-if="requestReceiptEmailFromCustomer" class="mb-3">
+                <label class="form-label" for="makepay-receipt-email">Receipt email</label>
+                <input id="makepay-receipt-email"
+                       class="form-control"
+                       type="email"
+                       autocomplete="email"
+                       v-model.trim="receiptEmail"
+                       v-on:input="resetQuote" />
+            </div>
+
+            <div v-if="shouldCollectRefundAddress" class="mb-3">
+                <label class="form-label" for="makepay-refund-address">Refund address</label>
+                <input id="makepay-refund-address"
+                       class="form-control"
+                       v-model.trim="refundAddress"
+                       v-on:input="resetQuote" />
+            </div>
+
+            <div class="d-grid mb-3">
+                <button type="button"
+                        class="btn btn-primary rounded-pill"
+                        v-on:click="pay"
+                        :disabled="payButtonDisabled">
+                    Pay
+                </button>
+            </div>
+        </div>
+
+        <div v-else-if="awaitingConfirmation">
+            <div class="border rounded p-3 mb-3">
+                <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                    <div>
+                        <div class="text-muted small">Pay with</div>
+                        <div class="fw-semibold">{{ selectedTokenLabel }}</div>
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            v-on:click="changeSelection"
+                            :disabled="isBusy">
+                        Change
+                    </button>
+                </div>
+
+                <div class="text-muted small">You send</div>
+                <div class="h4 mb-2 text-break">{{ quoteAmount }} {{ quoteAssetLabel }}</div>
+
+                <div class="d-flex align-items-center justify-content-between gap-3 small">
+                    <span class="text-muted">{{ quoteCountdownLabel }}</span>
+                    <button v-if="quoteExpired"
+                            type="button"
+                            class="btn btn-sm btn-link p-0"
+                            v-on:click="quote"
+                            :disabled="isBusy">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="d-grid gap-2 mb-3">
+                <button type="button"
+                        class="btn btn-primary rounded-pill"
+                        v-on:click="pay"
+                        :disabled="isBusy">
+                    {{ reviewButtonText }}
+                </button>
+            </div>
+        </div>
+
+        <div v-else-if="paymentStarted" class="text-center">
+            <div class="mb-3">
+                <div class="text-muted small">Send exactly</div>
+                <div class="h4 mb-0 text-break">{{ quoteAmount }} {{ quoteAssetLabel }}</div>
+                <div v-if="paymentCountdownLabel" class="small text-muted mt-1">{{ paymentCountdownLabel }}</div>
+            </div>
+
+            <div class="mb-3">
+                <img v-if="cashAppQrCodeUrl" :src="cashAppQrCodeUrl" alt="" class="img-fluid rounded" />
+                <qrcode v-else-if="qrValue" :value="qrValue" :options="qrOptions"></qrcode>
+            </div>
+
+            <div class="text-muted small mb-2">Payment address</div>
+            <code class="d-block text-break user-select-all mb-2">{{ depositAddress }}</code>
+            <button type="button" class="btn btn-sm btn-outline-secondary" v-on:click="copyAddress">
+                {{ copied ? 'Copied' : 'Copy address' }}
+            </button>
+        </div>
+
+        <div v-if="status" class="mt-3 small text-muted text-center">
+            Status: {{ status }}
+        </div>
+
+        <div v-if="isBusy" class="text-center py-3">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script src="~/vendor/vue-qrcode/vue-qrcode.min.js"></script>
+<script>
+(function () {
+    if (typeof Vue === 'undefined') {
+        return;
+    }
+
+    Vue.component('MakePayCheckout', {
+        props: ['model'],
+        template: '#MakePayCheckout',
+        components: {
+            qrcode: window.VueQrcode
+        },
+        data: function () {
+            return {
+                tokens: [],
+                selectedAsset: '',
+                receiptEmail: '',
+                refundAddress: '',
+                quoteSessionId: '',
+                quoteAmount: '',
+                quoteAsset: '',
+                quoteKey: '',
+                quoteExpiresAtMs: 0,
+                depositAddress: '',
+                qrValue: '',
+                cashAppQrCodeUrl: '',
+                paymentExpiresAtMs: 0,
+                status: '',
+                error: '',
+                success: '',
+                isBusy: false,
+                autoRefreshInFlight: false,
+                awaitingConfirmation: false,
+                paymentStarted: false,
+                copied: false,
+                pollTimer: null,
+                clockTimer: null,
+                nowMs: Date.now(),
+                qrOptions: {
+                    width: 240,
+                    margin: 1,
+                    color: {
+                        dark: '#000000',
+                        light: '#ffffff'
+                    }
+                }
+            };
+        },
+        computed: {
+            apiBase: function () {
+                return '/api/plugins/makepay/' +
+                    encodeURIComponent(this.model.makePayStoreId) +
+                    '/' +
+                    encodeURIComponent(this.model.invoiceId);
+            },
+            entryStep: function () {
+                return !this.awaitingConfirmation && !this.paymentStarted;
+            },
+            requestReceiptEmailFromCustomer: function () {
+                return this.model.makePayRequestReceiptEmailFromCustomer === true;
+            },
+            defaultReceiptEmail: function () {
+                return String(this.model.makePayDefaultReceiptEmail || '').trim();
+            },
+            refundAddressMode: function () {
+                return this.model.makePayRefundAddressMode === 'payer_entered'
+                    ? 'payer_entered'
+                    : 'merchant_wallet';
+            },
+            allowedAssetKeys: function () {
+                var self = this;
+                return String(this.model.makePayAllowedAssetIdentifiers || '')
+                    .split(/[,\n\r]+/)
+                    .map(function (value) { return self.normalizeAssetKey(value); })
+                    .filter(function (value) { return value.length > 0; });
+            },
+            selectedToken: function () {
+                var selected = this.selectedAsset;
+                return this.tokens.find(function (token) {
+                    return token.identifier === selected;
+                }) || null;
+            },
+            selectedTokenLabel: function () {
+                return this.selectedToken ? this.tokenLabel(this.selectedToken) : this.selectedAsset;
+            },
+            shouldCollectRefundAddress: function () {
+                return this.refundAddressMode === 'payer_entered' &&
+                    this.selectedToken &&
+                    this.selectedToken.requiresPayerRefundAddress === true;
+            },
+            quoteAssetLabel: function () {
+                return this.shortAssetLabel(this.quoteAsset || this.selectedAsset);
+            },
+            quoteSecondsRemaining: function () {
+                if (!this.quoteExpiresAtMs) {
+                    return 0;
+                }
+                return Math.max(0, Math.ceil((this.quoteExpiresAtMs - this.nowMs) / 1000));
+            },
+            quoteExpired: function () {
+                return this.awaitingConfirmation && this.quoteSecondsRemaining <= 0;
+            },
+            quoteCountdownLabel: function () {
+                return this.quoteExpired
+                    ? 'Quote expired'
+                    : 'Quote refreshes in ' + this.formatDuration(this.quoteSecondsRemaining);
+            },
+            paymentSecondsRemaining: function () {
+                if (!this.paymentExpiresAtMs) {
+                    return 0;
+                }
+                return Math.max(0, Math.ceil((this.paymentExpiresAtMs - this.nowMs) / 1000));
+            },
+            paymentCountdownLabel: function () {
+                if (!this.paymentExpiresAtMs) {
+                    return '';
+                }
+                return this.paymentSecondsRemaining > 0
+                    ? 'Payment expires in ' + this.formatDuration(this.paymentSecondsRemaining)
+                    : 'Payment window expired';
+            },
+            reviewButtonText: function () {
+                return this.quoteExpired ? 'Refreshing quote...' : 'Confirm and pay';
+            },
+            payButtonDisabled: function () {
+                return this.isBusy ||
+                    !this.selectedAsset ||
+                    this.status === 'complete' ||
+                    this.tokens.length === 0;
+            }
+        },
+        mounted: function () {
+            var self = this;
+            this.receiptEmail = this.defaultReceiptEmail;
+            this.clockTimer = setInterval(function () {
+                self.nowMs = Date.now();
+                self.autoRefreshQuoteIfNeeded();
+            }, 1000);
+            this.loadTokens();
+        },
+        beforeDestroy: function () {
+            this.stopPolling();
+            if (this.clockTimer) {
+                clearInterval(this.clockTimer);
+                this.clockTimer = null;
+            }
+        },
+        methods: {
+            loadTokens: async function () {
+                this.error = '';
+                this.isBusy = true;
+                try {
+                    var response = await fetch(this.apiBase + '/tokens', { cache: 'no-store' });
+                    var payload = await response.json();
+                    if (!response.ok || !Array.isArray(payload)) {
+                        throw new Error(payload && payload.error ? payload.error : 'Unable to load currencies.');
+                    }
+                    var settlementAsset = this.model.makePaySettlementAsset || 'BTC.BTC';
+                    var self = this;
+                    this.tokens = payload
+                        .filter(function (token) { return token && token.identifier && token.identifier !== settlementAsset; })
+                        .map(function (token) {
+                            return {
+                                identifier: String(token.identifier),
+                                ticker: String(token.ticker || token.symbol || ''),
+                                symbol: String(token.symbol || token.ticker || ''),
+                                name: String(token.name || token.ticker || token.identifier),
+                                network: String(token.network || token.chain || token.chainId || ''),
+                                requiresPayerRefundAddress:
+                                    token.requiresPayerRefundAddress === true ||
+                                    token.requires_payer_refund_address === true
+                            };
+                        })
+                        .filter(function (token) {
+                            return self.matchesAllowedAsset(token) &&
+                                (self.refundAddressMode === 'payer_entered' ||
+                                    token.requiresPayerRefundAddress !== true);
+                        });
+                    if (this.tokens.length > 0 && !this.selectedAsset) {
+                        this.selectedAsset = this.tokens[0].identifier;
+                    }
+                    if (this.tokens.length === 0) {
+                        this.error = 'No MakePay currencies are available with the current settings.';
+                    }
+                } catch (err) {
+                    this.error = err && err.message ? err.message : 'Unable to load currencies.';
+                } finally {
+                    this.isBusy = false;
+                }
+            },
+            tokenLabel: function (token) {
+                var parts = [token.ticker || token.name];
+                if (token.network) {
+                    parts.push(token.network);
+                }
+                return parts.join(' - ');
+            },
+            shortAssetLabel: function (value) {
+                var asset = String(value || '').trim();
+                if (this.selectedToken && this.selectedToken.ticker && (
+                    !asset ||
+                    asset === this.selectedToken.identifier ||
+                    asset.indexOf(this.selectedToken.ticker) >= 0)) {
+                    return this.selectedToken.ticker || asset;
+                }
+
+                var withoutChain = asset.indexOf('.') >= 0
+                    ? asset.substring(asset.indexOf('.') + 1)
+                    : asset;
+                return withoutChain.split('-')[0] || asset;
+            },
+            tokenKeys: function (token) {
+                var identifier = this.normalizeAssetKey(token.identifier);
+                var ticker = this.normalizeAssetKey(token.ticker || token.symbol);
+                var network = this.normalizeAssetKey(token.network);
+                var name = this.normalizeAssetKey(token.name);
+                var keys = [identifier, ticker, name];
+                if (ticker && network) {
+                    keys.push(ticker + '-' + network);
+                    keys.push(ticker + '.' + network);
+                    keys.push(network + '-' + ticker);
+                    keys.push(network + '.' + ticker);
+                }
+                return keys.filter(function (key) { return key.length > 0; });
+            },
+            normalizeAssetKey: function (value) {
+                return String(value || '')
+                    .trim()
+                    .toUpperCase()
+                    .replace(/\s*([-.:])\s*/g, '$1');
+            },
+            matchesAllowedAsset: function (token) {
+                if (this.allowedAssetKeys.length === 0) {
+                    return true;
+                }
+
+                var keys = this.tokenKeys(token);
+                return this.allowedAssetKeys.some(function (allowed) {
+                    return keys.some(function (key) {
+                        return key === allowed || key.indexOf(allowed) >= 0 || allowed.indexOf(key) >= 0;
+                    });
+                });
+            },
+            formatDuration: function (seconds) {
+                var value = Math.max(0, Number(seconds) || 0);
+                var minutes = Math.floor(value / 60);
+                var remaining = value % 60;
+                return minutes + ':' + String(remaining).padStart(2, '0');
+            },
+            parseDateMs: function (value) {
+                var parsed = Date.parse(String(value || ''));
+                return Number.isFinite(parsed) ? parsed : 0;
+            },
+            resolveQuoteExpiry: function (payload) {
+                var quote = payload && payload.quote ? payload.quote : {};
+                var refreshInSeconds = Number(quote.refreshInSeconds || quote.refresh_in_seconds || 0);
+                var updatedAtMs = this.parseDateMs(quote.updatedAt || quote.updated_at);
+                if (refreshInSeconds > 0 && updatedAtMs > 0) {
+                    return updatedAtMs + refreshInSeconds * 1000;
+                }
+
+                var expiresAtMs = this.parseDateMs(payload && payload.expiresAt);
+                return expiresAtMs || Date.now() + 60000;
+            },
+            currentQuoteKey: function () {
+                return [
+                    this.selectedAsset,
+                    this.receiptEmailForQuote(),
+                    this.shouldCollectRefundAddress ? this.refundAddress : '',
+                    this.refundAddressMode
+                ].join('|');
+            },
+            resetQuote: function () {
+                this.quoteSessionId = '';
+                this.quoteAmount = '';
+                this.quoteAsset = '';
+                this.quoteKey = '';
+                this.quoteExpiresAtMs = 0;
+                this.depositAddress = '';
+                this.qrValue = '';
+                this.cashAppQrCodeUrl = '';
+                this.paymentExpiresAtMs = 0;
+                this.status = '';
+                this.error = '';
+                this.success = '';
+                this.awaitingConfirmation = false;
+                this.paymentStarted = false;
+                this.copied = false;
+                this.stopPolling();
+            },
+            changeSelection: function () {
+                this.awaitingConfirmation = false;
+                this.quoteSessionId = '';
+                this.quoteAmount = '';
+                this.quoteAsset = '';
+                this.quoteKey = '';
+                this.quoteExpiresAtMs = 0;
+                this.status = '';
+            },
+            receiptEmailForQuote: function () {
+                return this.requestReceiptEmailFromCustomer
+                    ? this.receiptEmail.trim()
+                    : this.defaultReceiptEmail;
+            },
+            validateEmail: function (value) {
+                return /^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(value);
+            },
+            validateInput: function () {
+                if (!this.selectedAsset) {
+                    this.error = 'Select a currency.';
+                    return false;
+                }
+
+                var email = this.receiptEmailForQuote();
+                if (!email || !this.validateEmail(email)) {
+                    this.error = this.requestReceiptEmailFromCustomer
+                        ? 'Enter a valid receipt email.'
+                        : 'Set a default receipt email in the MakePay settings.';
+                    return false;
+                }
+
+                if (this.shouldCollectRefundAddress && !this.refundAddress) {
+                    this.error = 'Enter a refund address for the selected currency.';
+                    return false;
+                }
+
+                return true;
+            },
+            buildPaymentBody: function () {
+                var body = {
+                    sellAsset: this.selectedAsset,
+                    paymentMethod: 'crypto',
+                    receiptEmail: this.receiptEmailForQuote()
+                };
+
+                if (this.shouldCollectRefundAddress) {
+                    body.refundAddress = this.refundAddress;
+                    body.sourceAddress = this.refundAddress;
+                }
+
+                return body;
+            },
+            pay: async function () {
+                if (this.awaitingConfirmation) {
+                    if (this.quoteExpired || this.quoteKey !== this.currentQuoteKey()) {
+                        await this.quote();
+                        return;
+                    }
+                    await this.startPayment();
+                    return;
+                }
+
+                if (!this.validateInput()) {
+                    return;
+                }
+
+                await this.quote();
+            },
+            autoRefreshQuoteIfNeeded: async function () {
+                if (!this.awaitingConfirmation ||
+                    this.paymentStarted ||
+                    !this.quoteExpired ||
+                    this.isBusy ||
+                    this.autoRefreshInFlight) {
+                    return;
+                }
+
+                this.autoRefreshInFlight = true;
+                try {
+                    await this.quote();
+                } finally {
+                    this.autoRefreshInFlight = false;
+                }
+            },
+            quote: async function () {
+                if (!this.validateInput()) {
+                    return null;
+                }
+
+                this.error = '';
+                this.isBusy = true;
+                try {
+                    var response = await fetch(this.apiBase + '/quote', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.buildPaymentBody())
+                    });
+                    var payload = await response.json();
+                    if (!response.ok || !payload.sessionId) {
+                        throw new Error(payload && payload.error ? payload.error : 'Unable to quote payment.');
+                    }
+                    this.quoteSessionId = payload.sessionId;
+                    this.quoteKey = this.currentQuoteKey();
+                    this.status = payload.status || 'quoted';
+                    this.applyQuotedAmounts(payload);
+                    this.quoteExpiresAtMs = this.resolveQuoteExpiry(payload);
+                    this.awaitingConfirmation = true;
+                    this.nowMs = Date.now();
+                    return payload;
+                } catch (err) {
+                    this.error = err && err.message ? err.message : 'Unable to quote payment.';
+                    this.awaitingConfirmation = false;
+                    return null;
+                } finally {
+                    this.isBusy = false;
+                }
+            },
+            startPayment: async function () {
+                if (!this.quoteSessionId) {
+                    return;
+                }
+
+                this.error = '';
+                this.isBusy = true;
+                try {
+                    var body = this.buildPaymentBody();
+                    body.sessionId = this.quoteSessionId;
+                    var response = await fetch(this.apiBase + '/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    var payload = await response.json();
+                    if (!response.ok || !payload.sessionId) {
+                        throw new Error(payload && payload.error ? payload.error : 'Unable to start payment.');
+                    }
+                    this.awaitingConfirmation = false;
+                    this.paymentStarted = true;
+                    this.applyPaymentState(payload);
+                    this.startPolling(payload.sessionId);
+                } catch (err) {
+                    this.error = err && err.message ? err.message : 'Unable to start payment.';
+                } finally {
+                    this.isBusy = false;
+                }
+            },
+            applyQuotedAmounts: function (payload) {
+                var payableAmount = payload.payable && (payload.payable.requiredSellAmount || payload.payable.displayRequiredSellAmount);
+                if (payableAmount) {
+                    this.quoteAmount = String(payableAmount);
+                    this.quoteAsset =
+                        payload.payable && payload.payable.sellAsset
+                            ? String(payload.payable.sellAsset)
+                            : (this.quoteAsset || this.selectedAsset);
+                    return;
+                }
+
+                if (payload.whatToSend) {
+                    if (!this.quoteAmount && payload.whatToSend.amount) {
+                        this.quoteAmount = String(payload.whatToSend.amount);
+                    }
+                    if (!this.quoteAsset && payload.whatToSend.asset) {
+                        this.quoteAsset = String(payload.whatToSend.asset);
+                    }
+                }
+            },
+            applyPaymentState: function (payload) {
+                this.status = payload.status || this.status;
+                this.applyQuotedAmounts(payload);
+                this.paymentExpiresAtMs = this.parseDateMs(payload.expiresAt) || this.paymentExpiresAtMs;
+                if (payload.deposit) {
+                    this.depositAddress = payload.deposit.address || this.depositAddress;
+                    this.qrValue =
+                        (payload.deposit.qr && (payload.deposit.qr.withAmount || payload.deposit.qr.addressOnly)) ||
+                        payload.deposit.qrData ||
+                        payload.deposit.uri ||
+                        this.depositAddress;
+                }
+                if (payload.cashApp) {
+                    this.cashAppQrCodeUrl = payload.cashApp.qrCodeUrl || this.cashAppQrCodeUrl;
+                    this.depositAddress = payload.cashApp.paymentRequest || this.depositAddress;
+                    this.qrValue = payload.cashApp.paymentRequest || this.qrValue;
+                }
+                if (this.status === 'complete') {
+                    this.success = 'Payment complete.';
+                    this.stopPolling();
+                    setTimeout(function () { window.location.reload(); }, 1500);
+                }
+            },
+            startPolling: function (sessionId) {
+                var self = this;
+                this.stopPolling();
+                this.pollTimer = setInterval(function () {
+                    self.pollStatus(sessionId);
+                }, 5000);
+                this.pollStatus(sessionId);
+            },
+            stopPolling: function () {
+                if (this.pollTimer) {
+                    clearInterval(this.pollTimer);
+                    this.pollTimer = null;
+                }
+            },
+            pollStatus: async function (sessionId) {
+                try {
+                    var response = await fetch(
+                        this.apiBase + '/status?sessionId=' + encodeURIComponent(sessionId),
+                        { cache: 'no-store' }
+                    );
+                    var payload = await response.json();
+                    if (response.ok) {
+                        this.applyPaymentState(payload);
+                    }
+                } catch (err) {
+                    console.warn('Unable to poll MakePay status', err);
+                }
+            },
+            copyAddress: function () {
+                var self = this;
+                if (navigator.clipboard && this.depositAddress) {
+                    navigator.clipboard.writeText(this.depositAddress).then(function () {
+                        self.copied = true;
+                        setTimeout(function () { self.copied = false; }, 1500);
+                    });
+                }
+            }
+        }
+    });
+})();
+</script>

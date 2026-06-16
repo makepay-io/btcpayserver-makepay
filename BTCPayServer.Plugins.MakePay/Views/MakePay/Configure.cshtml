@@ -1,0 +1,282 @@
+@using BTCPayServer.Abstractions.Extensions
+@model BTCPayServer.Plugins.MakePay.PaymentHandler.MakePayPaymentMethodConfig
+@{
+    ViewData.SetActivePage("MakePay", "MakePay Settings", "MakePay");
+    var storeId = Context.Request.RouteValues["storeId"]?.ToString();
+}
+
+<form method="post">
+    <div class="sticky-header-setup"></div>
+    <div class="sticky-header d-sm-flex align-items-center justify-content-between">
+        <h2 class="mb-0">@ViewData["Title"]</h2>
+        <div class="d-flex gap-3 mt-3 mt-sm-0">
+            @if (Model.IsConfigured)
+            {
+                <button name="command" type="submit" value="disconnect" class="btn btn-outline-danger">Disconnect</button>
+            }
+            <button name="command" type="submit" value="save" class="btn btn-secondary">Save</button>
+            <button name="command" type="submit" value="connect" class="btn btn-primary">Connect MakePay</button>
+        </div>
+    </div>
+
+    <partial name="_StatusMessage" />
+
+    <div class="row">
+        <div class="col-xl-8 col-xxl-constrain">
+            @if (Model.IsConfigured)
+            {
+                <div class="alert alert-success">
+                    <strong>Connected</strong>
+                    @if (!string.IsNullOrEmpty(Model.CompanyId))
+                    {
+                        <div class="small mt-1">Company: <code>@Model.CompanyId</code></div>
+                    }
+                    @if (!string.IsNullOrEmpty(Model.WebhookSecretLast4))
+                    {
+                        <div class="small">Webhook secret: <code>...@Model.WebhookSecretLast4</code></div>
+                    }
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(Model.LastError))
+            {
+                <div class="alert alert-danger">@Model.LastError</div>
+            }
+
+            <ul class="nav nav-tabs mt-4" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="makepay-general-tab" data-bs-toggle="tab" data-bs-target="#makepay-general" type="button" role="tab" aria-controls="makepay-general" aria-selected="true">
+                        General
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="makepay-currencies-tab" data-bs-toggle="tab" data-bs-target="#makepay-currencies" type="button" role="tab" aria-controls="makepay-currencies" aria-selected="false">
+                        Allowed currencies
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content pt-4">
+                <div class="tab-pane fade show active" id="makepay-general" role="tabpanel" aria-labelledby="makepay-general-tab">
+                    <div class="form-group">
+                        <div class="d-flex align-items-center">
+                            <input asp-for="Enabled" type="checkbox" class="btcpay-toggle me-2" />
+                            <label asp-for="Enabled" class="form-label mb-0">Enable MakePay</label>
+                        </div>
+                        <span asp-validation-for="Enabled" class="text-danger"></span>
+                    </div>
+
+                    <h4 class="mt-4 mb-3">Receipts</h4>
+
+                    <div class="form-group">
+                        <div class="d-flex align-items-center">
+                            <input asp-for="RequestReceiptEmailFromCustomer" type="checkbox" class="btcpay-toggle me-2" />
+                            <label asp-for="RequestReceiptEmailFromCustomer" class="form-label mb-0">Ask customer for receipt email</label>
+                        </div>
+                        <div class="form-text">
+                            When disabled, MakePay uses the default receipt email below.
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label asp-for="DefaultReceiptEmail" class="form-label">Default receipt email</label>
+                        <input asp-for="DefaultReceiptEmail" type="email" class="form-control" autocomplete="email" />
+                        <div class="form-text">
+                            Used for MakePay receipts when customer email collection is disabled.
+                        </div>
+                        <span asp-validation-for="DefaultReceiptEmail" class="text-danger"></span>
+                    </div>
+
+                    <h4 class="mt-5 mb-3">Refunds</h4>
+
+                    <div class="form-group">
+                        <label asp-for="RefundAddressMode" class="form-label">Refund address collection</label>
+                        <select asp-for="RefundAddressMode" class="form-select">
+                            <option value="@MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet">Merchant wallets</option>
+                            <option value="@MakePayPaymentMethodConfig.RefundAddressModePayerEntered">Ask payer</option>
+                        </select>
+                        <div class="form-text">
+                            Merchant wallets uses saved MakePay refund wallets. Ask payer collects a refund address during checkout for assets that need one.
+                        </div>
+                    </div>
+
+                    <h4 class="mt-5 mb-3">Settlement</h4>
+                    <div class="alert alert-info">
+                        MakePay settlement is fixed to BTC on-chain for this version. A fresh receive address from this store's BTC wallet is reserved for each invoice.
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="makepay-currencies" role="tabpanel" aria-labelledby="makepay-currencies-tab">
+                    <div class="form-group">
+                        <input asp-for="AllowedAssetIdentifiers" type="hidden" />
+                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+                            <div>
+                                <label class="form-label mb-1">Allowed currencies</label>
+                                <div class="form-text mt-0">
+                                    Choose which MakePay-supported pay-in currencies are available in checkout.
+                                </div>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="makepay-allow-all-currencies" />
+                                <label class="form-check-label" for="makepay-allow-all-currencies">Allow all</label>
+                            </div>
+                        </div>
+
+                        <div id="makepay-currencies-list"
+                             class="list-group"
+                             data-url="@Url.Action("Currencies", "MakePay", new { storeId })">
+                            <div class="list-group-item text-muted">Loading currencies...</div>
+                        </div>
+                        <div class="form-text">
+                            With Allow all enabled, new MakePay-supported currencies are automatically available.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+<script>
+(function () {
+    var list = document.getElementById('makepay-currencies-list');
+    var hidden = document.getElementById('AllowedAssetIdentifiers');
+    var allowAll = document.getElementById('makepay-allow-all-currencies');
+    if (!list || !hidden || !allowAll) {
+        return;
+    }
+
+    var tokens = [];
+    var selected = new Set(parseHiddenValue(hidden.value));
+
+    function parseHiddenValue(value) {
+        return String(value || '')
+            .split(/[,\n\r]+/)
+            .map(function (item) { return item.trim(); })
+            .filter(function (item) { return item.length > 0; });
+    }
+
+    function tokenIdentifier(token) {
+        return String(token.identifier || '').trim();
+    }
+
+    function tokenTicker(token) {
+        return String(token.ticker || token.symbol || '').trim();
+    }
+
+    function tokenNetwork(token) {
+        return String(token.network || token.chain || token.chainId || '').trim();
+    }
+
+    function tokenName(token) {
+        return String(token.name || tokenTicker(token) || tokenIdentifier(token)).trim();
+    }
+
+    function tokenLabel(token) {
+        var ticker = tokenTicker(token);
+        var network = tokenNetwork(token);
+        return network ? ticker + ' - ' + network : ticker;
+    }
+
+    function writeHidden() {
+        hidden.value = allowAll.checked ? '' : Array.from(selected).sort().join('\n');
+    }
+
+    function render() {
+        list.innerHTML = '';
+
+        if (tokens.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'list-group-item text-muted';
+            empty.textContent = 'No MakePay currencies are available.';
+            list.appendChild(empty);
+            return;
+        }
+
+        tokens.forEach(function (token) {
+            var identifier = tokenIdentifier(token);
+            if (!identifier) {
+                return;
+            }
+
+            var row = document.createElement('label');
+            row.className = 'list-group-item d-flex align-items-center justify-content-between gap-3';
+
+            var text = document.createElement('span');
+            text.className = 'd-flex flex-column text-break';
+
+            var title = document.createElement('span');
+            title.className = 'fw-semibold';
+            title.textContent = tokenLabel(token) || identifier;
+
+            var detail = document.createElement('small');
+            detail.className = 'text-muted';
+            var name = tokenName(token);
+            detail.textContent = name && name !== title.textContent
+                ? name + ' - ' + identifier
+                : identifier;
+
+            text.appendChild(title);
+            text.appendChild(detail);
+
+            var toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.className = 'btcpay-toggle flex-shrink-0';
+            toggle.checked = allowAll.checked || selected.has(identifier);
+            toggle.disabled = allowAll.checked;
+            toggle.addEventListener('change', function () {
+                if (toggle.checked) {
+                    selected.add(identifier);
+                } else {
+                    selected.delete(identifier);
+                }
+                writeHidden();
+            });
+
+            row.appendChild(text);
+            row.appendChild(toggle);
+            list.appendChild(row);
+        });
+    }
+
+    allowAll.checked = selected.size === 0;
+    allowAll.addEventListener('change', function () {
+        if (!allowAll.checked && selected.size === 0) {
+            tokens.forEach(function (token) {
+                var identifier = tokenIdentifier(token);
+                if (identifier) {
+                    selected.add(identifier);
+                }
+            });
+        }
+        writeHidden();
+        render();
+    });
+
+    fetch(list.dataset.url, { cache: 'no-store' })
+        .then(function (response) {
+            return response.json().then(function (payload) {
+                if (!response.ok || !Array.isArray(payload)) {
+                    throw new Error(payload && payload.error ? payload.error : 'Unable to load MakePay currencies.');
+                }
+                return payload;
+            });
+        })
+        .then(function (payload) {
+            tokens = payload
+                .filter(function (token) { return token && tokenIdentifier(token); })
+                .sort(function (a, b) {
+                    return (tokenLabel(a) || tokenIdentifier(a))
+                        .localeCompare(tokenLabel(b) || tokenIdentifier(b));
+                });
+            render();
+            writeHidden();
+        })
+        .catch(function (error) {
+            list.innerHTML = '';
+            var message = document.createElement('div');
+            message.className = 'list-group-item text-danger';
+            message.textContent = error && error.message ? error.message : 'Unable to load MakePay currencies.';
+            list.appendChild(message);
+        });
+})();
+</script>
