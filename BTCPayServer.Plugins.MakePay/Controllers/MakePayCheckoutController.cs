@@ -1,6 +1,8 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
@@ -23,17 +25,20 @@ public class MakePayCheckoutController : ControllerBase
     private readonly InvoiceRepository _invoiceRepository;
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly MakePayApiClient _makePayApiClient;
+    private readonly MakePaySecretProtector _secretProtector;
 
     public MakePayCheckoutController(
         StoreRepository storeRepository,
         InvoiceRepository invoiceRepository,
         PaymentMethodHandlerDictionary handlers,
-        MakePayApiClient makePayApiClient)
+        MakePayApiClient makePayApiClient,
+        MakePaySecretProtector secretProtector)
     {
         _storeRepository = storeRepository;
         _invoiceRepository = invoiceRepository;
         _handlers = handlers;
         _makePayApiClient = makePayApiClient;
+        _secretProtector = secretProtector;
     }
 
     [HttpGet("tokens")]
@@ -66,11 +71,13 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = "Invalid JSON body." });
         }
 
+        var paymentBody = ApplyMerchantRefundAddress(resolved, body);
+
         return await Proxy(() => _makePayApiClient.SendPublic(
             resolved.Config,
             HttpMethod.Post,
             "/api/public/payment-links/" + Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid) + "/quote-payin",
-            body));
+            paymentBody));
     }
 
     [HttpPost("start")]
@@ -88,11 +95,13 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = "Invalid JSON body." });
         }
 
+        var paymentBody = ApplyMerchantRefundAddress(resolved, body);
+
         return await Proxy(() => _makePayApiClient.SendPublic(
             resolved.Config,
             HttpMethod.Post,
             "/api/public/payment-links/" + Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid) + "/start-payment",
-            body));
+            paymentBody));
     }
 
     [HttpGet("status")]
@@ -127,10 +136,10 @@ public class MakePayCheckoutController : ControllerBase
             return null;
         }
 
-        var config = store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
+        var config = _secretProtector.Unprotect(store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
             MakePayPlugin.MakePayPaymentMethodId,
-            _handlers);
-        if (config is not { IsConfigured: true })
+            _handlers) ?? new MakePayPaymentMethodConfig());
+        if (!config.Enabled)
         {
             return null;
         }
@@ -147,6 +156,11 @@ public class MakePayCheckoutController : ControllerBase
         }
 
         var details = (MakePayPromptDetails)handler.ParsePaymentPromptDetails(prompt.Details);
+        if (!string.IsNullOrWhiteSpace(details.CheckoutBaseUrl))
+        {
+            config.CheckoutBaseUrl = details.CheckoutBaseUrl;
+        }
+
         return new ResolvedCheckout(config, details);
     }
 
@@ -168,6 +182,92 @@ public class MakePayCheckoutController : ControllerBase
             return null;
         }
     }
+
+    private static JToken ApplyMerchantRefundAddress(ResolvedCheckout resolved, JToken body)
+    {
+        if (body is not JObject payload ||
+            HasValue(payload, "refundAddress") ||
+            HasValue(payload, "sourceAddress") ||
+            !string.Equals(
+                resolved.Prompt.RefundAddressMode,
+                MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet,
+                StringComparison.Ordinal))
+        {
+            return body;
+        }
+
+        var address = FindMerchantRefundAddress(
+            resolved,
+            payload["sellAsset"]?.Value<string>());
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return body;
+        }
+
+        payload["refundAddress"] = address;
+        payload["sourceAddress"] = address;
+        return payload;
+    }
+
+    private static string? FindMerchantRefundAddress(ResolvedCheckout resolved, string? sellAsset)
+    {
+        var addresses = resolved.Config.GetChainAddresses().ToList();
+        if (!addresses.Any(address => string.Equals(address.Chain, "BTC", StringComparison.OrdinalIgnoreCase)) &&
+            !string.IsNullOrWhiteSpace(resolved.Prompt.SettlementAddress) &&
+            string.Equals(resolved.Prompt.SettlementCurrency, "BTC", StringComparison.OrdinalIgnoreCase))
+        {
+            addresses.Add(new MakePayChainAddress
+            {
+                Chain = "BTC",
+                Address = resolved.Prompt.SettlementAddress
+            });
+        }
+
+        var chain = ResolveChainFromSellAsset(sellAsset, addresses);
+        return chain is null
+            ? null
+            : addresses.FirstOrDefault(address =>
+                string.Equals(address.Chain, chain, StringComparison.OrdinalIgnoreCase))?.Address;
+    }
+
+    private static string? ResolveChainFromSellAsset(
+        string? sellAsset,
+        IReadOnlyCollection<MakePayChainAddress> addresses)
+    {
+        var value = sellAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var knownChains = addresses
+            .Select(address => address.Chain)
+            .Where(chain => !string.IsNullOrWhiteSpace(chain))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (knownChains.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = value
+            .Split(['.', '-', ':', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => part.ToUpperInvariant());
+        foreach (var part in parts)
+        {
+            if (knownChains.Contains(part))
+            {
+                return part;
+            }
+        }
+
+        var normalized = value.ToUpperInvariant();
+        return knownChains.Contains(normalized)
+            ? normalized
+            : null;
+    }
+
+    private static bool HasValue(JObject payload, string propertyName) =>
+        !string.IsNullOrWhiteSpace(payload[propertyName]?.Value<string>());
 
     private async Task<IActionResult> Proxy(Func<Task<JToken>> send)
     {

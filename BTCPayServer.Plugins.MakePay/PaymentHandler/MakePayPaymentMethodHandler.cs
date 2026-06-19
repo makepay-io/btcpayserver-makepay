@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer;
 using BTCPayServer.Data;
@@ -48,7 +49,7 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
     public Task BeforeFetchingRates(PaymentMethodContext context)
     {
         var config = ParsePaymentMethodConfigInternal(context.PaymentMethodConfig);
-        if (!config.Enabled || !config.IsConfigured)
+        if (!config.Enabled)
         {
             context.State = null;
             return Task.CompletedTask;
@@ -57,36 +58,27 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
         context.Prompt.Currency = "BTC";
         context.Prompt.Divisibility = 8;
 
-        var handlers = _serviceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
-        var btcWallet = context.Store.GetDerivationSchemeSettings(handlers, "BTC", true);
-        if (btcWallet?.AccountDerivation is null)
+        if (!config.IsConfigured)
         {
+            var fallback = config.HasAnonymousSettlement
+                ? default
+                : ReserveBtcAddress(context.Store);
             context.State = new PrepareState
             {
                 Config = config,
-                WalletUnavailableReason = "Enable a BTC on-chain wallet before enabling MakePay."
+                ReserveAddress = fallback.ReserveAddress,
+                WalletUnavailableReason = fallback.WalletUnavailableReason
             };
             return Task.CompletedTask;
         }
 
-        var wallet = _walletProvider.GetWallet("BTC");
-        if (wallet is null)
-        {
-            context.State = new PrepareState
-            {
-                Config = config,
-                WalletUnavailableReason = "The BTC wallet provider is not available."
-            };
-            return Task.CompletedTask;
-        }
+        var reserve = ReserveBtcAddress(context.Store);
 
         context.State = new PrepareState
         {
             Config = config,
-            ReserveAddress = wallet.ReserveAddressAsync(
-                context.Store.Id,
-                btcWallet.AccountDerivation,
-                "makepay")
+            ReserveAddress = reserve.ReserveAddress,
+            WalletUnavailableReason = reserve.WalletUnavailableReason
         };
         return Task.CompletedTask;
     }
@@ -103,37 +95,92 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
             throw new PaymentMethodUnavailableException(state.WalletUnavailableReason);
         }
 
-        if (state.ReserveAddress is null)
+        if (state.Config.IsConfigured && state.ReserveAddress is null)
         {
             throw new PaymentMethodUnavailableException("Unable to reserve a BTC settlement address.");
         }
 
         var config = state.Config;
         var invoice = context.InvoiceEntity;
-        var settlementAddress = (await state.ReserveAddress).Address.ToString();
+        var settlementAddress = state.ReserveAddress is null
+            ? string.Empty
+            : (await state.ReserveAddress).Address.ToString();
         var btcAmount = context.Prompt.Calculate().TotalDue;
         if (btcAmount <= 0m)
         {
             throw new PaymentMethodUnavailableException("The MakePay BTC settlement amount is too small.");
         }
 
-        var baseUrl = (config.SiteUrl ?? string.Empty).TrimEnd('/');
+        var baseUrl = config.NormalizedSiteUrl();
 
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new PaymentMethodUnavailableException("MakePay is missing the BTCPay Server site URL. Reconnect MakePay.");
+            throw new PaymentMethodUnavailableException("MakePay is missing the BTCPay Server site URL. Set it in the MakePay settings.");
         }
 
         var webhookUrl = baseUrl + "/plugins/makepay/webhook/" + Uri.EscapeDataString(context.Store.Id);
         var checkoutUrl = baseUrl + "/i/" + Uri.EscapeDataString(invoice.Id);
-        var paymentLink = await _makePayApiClient.CreatePaymentLink(
-            config,
-            context.Store.Id,
-            invoice.Id,
-            btcAmount,
-            settlementAddress,
-            webhookUrl,
-            checkoutUrl);
+        MakePayPaymentLinkResponse paymentLink;
+        if (config.IsConfigured)
+        {
+            paymentLink = await _makePayApiClient.CreateConnectedPaymentLink(
+                config,
+                context.Store.Id,
+                invoice.Id,
+                btcAmount,
+                settlementAddress,
+                webhookUrl,
+                checkoutUrl);
+        }
+        else
+        {
+            var priorities = config.ResolveSettlementPriorities();
+            var sourceAddresses = config.GetChainAddresses();
+            if (priorities.Count == 0)
+            {
+                if (state.ReserveAddress is null)
+                {
+                    throw new PaymentMethodUnavailableException("Set a BTC MakePay settlement address or enable a BTC on-chain wallet before using anonymous payment links.");
+                }
+
+                settlementAddress = (await state.ReserveAddress).Address.ToString();
+                priorities =
+                [
+                    new MakePaySettlementPriority
+                    {
+                        Chain = "BTC",
+                        Address = settlementAddress,
+                        Asset = "BTC.BTC"
+                    }
+                ];
+            }
+
+            if (!sourceAddresses.Any(address =>
+                    string.Equals(address.Chain, "BTC", StringComparison.OrdinalIgnoreCase)) &&
+                !string.IsNullOrWhiteSpace(settlementAddress))
+            {
+                sourceAddresses = sourceAddresses.Concat(
+                [
+                    new MakePayChainAddress
+                    {
+                        Chain = "BTC",
+                        Address = settlementAddress
+                    }
+                ]).ToArray();
+            }
+
+            paymentLink = await _makePayApiClient.CreateAnonymousPaymentLink(
+                config,
+                context.Store.Id,
+                invoice.Id,
+                invoice.Price,
+                invoice.Currency,
+                priorities,
+                sourceAddresses,
+                webhookUrl,
+                checkoutUrl);
+            settlementAddress = priorities[0].Address;
+        }
 
         context.Store.SetPaymentMethodConfig(this, _secretProtector.Protect(config));
         await _storeRepository.UpdateStore(context.Store);
@@ -142,8 +189,13 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
         {
             PaymentLinkUid = paymentLink.Uid,
             PaymentLinkUrl = paymentLink.PublicUrl,
+            IsAnonymous = paymentLink.IsAnonymous,
             BtcAmount = btcAmount,
+            SettlementCurrency = paymentLink.SettlementCurrency ?? config.NormalizedSettlementCurrency(),
+            SettlementAsset = paymentLink.SettlementAsset ?? "BTC.BTC",
             SettlementAddress = settlementAddress,
+            WebhookSecret = paymentLink.WebhookSecret ?? string.Empty,
+            WebhookSecretLast4 = paymentLink.WebhookSecretLast4 ?? string.Empty,
             WebhookUrl = webhookUrl,
             CheckoutBaseUrl = config.NormalizedCheckoutBaseUrl(),
             RequestReceiptEmailFromCustomer = config.RequestReceiptEmailFromCustomer,
@@ -158,14 +210,25 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
         context.Prompt.Details = JObject.FromObject(promptDetails, Serializer);
         context.TrackedDestinations.Add(paymentLink.Uid);
         context.AdditionalSearchTerms.Add(paymentLink.Uid);
-        context.AdditionalSearchTerms.Add(settlementAddress);
+        if (!string.IsNullOrWhiteSpace(settlementAddress))
+        {
+            context.AdditionalSearchTerms.Add(settlementAddress);
+        }
+        foreach (var priority in config.ResolveSettlementPriorities())
+        {
+            context.AdditionalSearchTerms.Add(priority.Address);
+        }
+        foreach (var sourceAddress in config.GetChainAddresses())
+        {
+            context.AdditionalSearchTerms.Add(sourceAddress.Address);
+        }
 
         _logger.LogInformation(
-            "Created MakePay prompt for invoice {InvoiceId}: link {PaymentLinkUid}, {Amount} BTC to {Address}",
+            "Created MakePay prompt for invoice {InvoiceId}: link {PaymentLinkUid}, {Amount} BTC ({Mode})",
             invoice.Id,
             paymentLink.Uid,
             btcAmount.ToString("0.########", CultureInfo.InvariantCulture),
-            settlementAddress);
+            paymentLink.IsAnonymous ? "anonymous" : "connected");
     }
 
     public Task AfterSavingInvoice(PaymentMethodContext context)
@@ -195,6 +258,30 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
         var parsed = config?.ToObject<MakePayPaymentMethodConfig>(Serializer) ??
                      new MakePayPaymentMethodConfig { Enabled = false };
         return _secretProtector.Unprotect(parsed);
+    }
+
+    private (Task<NBXplorer.Models.KeyPathInformation>? ReserveAddress, string? WalletUnavailableReason)
+        ReserveBtcAddress(StoreData store)
+    {
+        var handlers = _serviceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
+        var btcWallet = store.GetDerivationSchemeSettings(handlers, "BTC", true);
+        if (btcWallet?.AccountDerivation is null)
+        {
+            return (null, "Enable a BTC on-chain wallet before enabling MakePay.");
+        }
+
+        var wallet = _walletProvider.GetWallet("BTC");
+        if (wallet is null)
+        {
+            return (null, "The BTC wallet provider is not available.");
+        }
+
+        return (
+            wallet.ReserveAddressAsync(
+                store.Id,
+                btcWallet.AccountDerivation,
+                "makepay"),
+            null);
     }
 
     private sealed class PrepareState

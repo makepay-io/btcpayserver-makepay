@@ -193,7 +193,11 @@ public class MakePayController : Controller
     private async Task<IActionResult> Connect(StoreData store, MakePayPaymentMethodConfig config)
     {
         var dpop = MakePayDpopService.GenerateKeyPair();
-        var siteUrl = Request.GetAbsoluteRoot().TrimEnd('/');
+        var siteUrl = config.NormalizedSiteUrl();
+        if (string.IsNullOrWhiteSpace(siteUrl))
+        {
+            siteUrl = Request.GetAbsoluteRoot().TrimEnd('/');
+        }
         var redirectUri = siteUrl + "/plugins/" + Uri.EscapeDataString(store.Id) + "/makepay/oauth/callback";
         var state = MakePayDpopService.RandomToken(32);
         var verifier = MakePayDpopService.RandomToken(64);
@@ -247,12 +251,21 @@ public class MakePayController : Controller
             config.DefaultReceiptEmail = CurrentUserEmail();
         }
 
+        if (string.IsNullOrWhiteSpace(config.SiteUrl))
+        {
+            config.SiteUrl = Request.GetAbsoluteRoot().TrimEnd('/');
+        }
+
         return config;
     }
 
     private async Task SaveConfig(StoreData store, MakePayPaymentMethodConfig config)
     {
+        config.NormalizeSettlement();
         var handler = _handlers[MakePayPlugin.MakePayPaymentMethodId];
+        var storeBlob = store.GetStoreBlob();
+        storeBlob.SetExcluded(handler.PaymentMethodId, !config.Enabled);
+        store.SetStoreBlob(storeBlob);
         store.SetPaymentMethodConfig(handler, _secretProtector.Protect(config));
         await _storeRepository.UpdateStore(store);
     }
@@ -264,8 +277,13 @@ public class MakePayController : Controller
         existing.Enabled = posted.Enabled;
         existing.RequestReceiptEmailFromCustomer = posted.RequestReceiptEmailFromCustomer;
         existing.DefaultReceiptEmail = NormalizeOptional(posted.DefaultReceiptEmail);
+        existing.DisplayQuoteApproval = posted.DisplayQuoteApproval;
         existing.RefundAddressMode = posted.NormalizedRefundAddressMode();
         existing.AllowedAssetIdentifiers = NormalizeAllowedAssetIdentifiers(posted.AllowedAssetIdentifiers);
+        existing.SiteUrl = NormalizeAbsoluteUrl(posted.SiteUrl) ?? existing.SiteUrl;
+        existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
+        existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
+        existing.ChainAddressesJson = NormalizeChainAddressesJson(posted.ChainAddressesJson);
         return existing;
     }
 
@@ -301,6 +319,62 @@ public class MakePayController : Controller
             new[] { ',', '\n', '\r' },
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return parts.Length == 0 ? null : string.Join(Environment.NewLine, parts);
+    }
+
+    private static string? NormalizeSettlementPrioritiesJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            var parsed = JArray.Parse(value);
+            return MakePayPaymentMethodConfig.SerializeSettlementPriorities(
+                MakePayPaymentMethodConfig.NormalizeSettlementPriorities(parsed));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeChainAddressesJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return MakePayPaymentMethodConfig.SerializeChainAddresses(
+                MakePayPaymentMethodConfig.NormalizeChainAddresses(JToken.Parse(value)));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeAbsoluteUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var isLocalHttp =
+            uri.Scheme == Uri.UriSchemeHttp &&
+            (uri.Host == "localhost" || uri.Host == "127.0.0.1");
+        if (uri.Scheme != Uri.UriSchemeHttps && !isLocalHttp)
+        {
+            return null;
+        }
+
+        return uri.ToString().TrimEnd('/');
     }
 
     private void SetStatus(StatusMessageModel.StatusSeverity severity, string message)

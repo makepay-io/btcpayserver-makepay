@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -116,7 +117,7 @@ public class MakePayApiClient
         return await SendAuthenticated(config, request, cancellationToken);
     }
 
-    public async Task<MakePayPaymentLinkResponse> CreatePaymentLink(
+    public async Task<MakePayPaymentLinkResponse> CreateConnectedPaymentLink(
         MakePayPaymentMethodConfig config,
         string storeId,
         string invoiceId,
@@ -174,16 +175,102 @@ public class MakePayApiClient
             Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json")
         };
         var response = await SendAuthenticated(config, request, cancellationToken);
-        var paymentLink = response["paymentLink"] as JObject;
-        var uid = paymentLink?["uid"]?.Value<string>();
-        var publicUrl = paymentLink?["publicUrl"]?.Value<string>();
+        return ParsePaymentLinkResponse(response, false);
+    }
 
-        if (string.IsNullOrWhiteSpace(uid) || string.IsNullOrWhiteSpace(publicUrl))
+    public async Task<MakePayPaymentLinkResponse> CreateAnonymousPaymentLink(
+        MakePayPaymentMethodConfig config,
+        string storeId,
+        string invoiceId,
+        decimal amount,
+        string fiatCurrency,
+        IReadOnlyList<MakePaySettlementPriority> settlementPriorities,
+        IReadOnlyList<MakePayChainAddress> sourceAddresses,
+        string webhookUrl,
+        string invoiceCheckoutUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (settlementPriorities.Count == 0)
         {
-            throw new InvalidOperationException("MakePay did not return a payment link uid and public URL.");
+            throw new InvalidOperationException("Anonymous MakePay links require at least one settlement route.");
         }
 
-        return new MakePayPaymentLinkResponse(uid, publicUrl);
+        var url = config.NormalizedApiBaseUrl() + "/api/partner/v1/makepay/payment-links";
+        var displayAmount = amount.ToString("0.########", CultureInfo.InvariantCulture);
+        var displayCurrency = string.IsNullOrWhiteSpace(fiatCurrency)
+            ? "USD"
+            : fiatCurrency.Trim().ToUpperInvariant();
+        var priorities = new JArray();
+        foreach (var priority in settlementPriorities)
+        {
+            var item = new JObject
+            {
+                ["chain"] = priority.Chain,
+                ["address"] = priority.Address
+            };
+            if (!string.IsNullOrWhiteSpace(priority.Asset))
+            {
+                item["asset"] = priority.Asset;
+            }
+
+            priorities.Add(item);
+        }
+
+        var settlement = new JObject
+        {
+            ["currency"] = config.NormalizedSettlementCurrency(),
+            ["priorities"] = priorities
+        };
+
+        var sources = new JArray();
+        foreach (var sourceAddress in sourceAddresses)
+        {
+            sources.Add(new JObject
+            {
+                ["chain"] = sourceAddress.Chain,
+                ["address"] = sourceAddress.Address
+            });
+        }
+
+        if (sources.Count > 0)
+        {
+            settlement["sourceAddresses"] = sources;
+        }
+
+        var body = new JObject
+        {
+            ["amount"] = displayAmount,
+            ["fiatCurrency"] = displayCurrency,
+            ["title"] = "BTCPay invoice " + invoiceId,
+            ["description"] = "BTCPay Server invoice " + invoiceId,
+            ["settlement"] = settlement,
+            ["returnUrl"] = invoiceCheckoutUrl,
+            ["successUrl"] = invoiceCheckoutUrl,
+            ["failureUrl"] = invoiceCheckoutUrl,
+            ["expirationTime"] = "72h",
+            ["webhookUrl"] = webhookUrl,
+            ["metadata"] = new JObject
+            {
+                ["source"] = "btcpay-server-anonymous",
+                ["btcpayStoreId"] = storeId,
+                ["btcpayInvoiceId"] = invoiceId
+            }
+        };
+
+        var receiptEmail = config.RequestReceiptEmailFromCustomer
+            ? null
+            : NullIfWhiteSpace(config.DefaultReceiptEmail);
+        if (receiptEmail is not null)
+        {
+            body["customerEmail"] = receiptEmail;
+        }
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json")
+        };
+        var response = await Send(request, cancellationToken);
+        return ParsePaymentLinkResponse(response, true);
     }
 
     public async Task<JObject?> GetCurrentSession(
@@ -227,6 +314,34 @@ public class MakePayApiClient
         }
 
         return await SendToken(request, cancellationToken);
+    }
+
+    private static MakePayPaymentLinkResponse ParsePaymentLinkResponse(
+        JObject response,
+        bool isAnonymous)
+    {
+        var paymentLink = response["paymentLink"] as JObject;
+        var uid = paymentLink?["uid"]?.Value<string>();
+        var publicUrl = paymentLink?["publicUrl"]?.Value<string>();
+
+        if (paymentLink is null ||
+            string.IsNullOrWhiteSpace(uid) ||
+            string.IsNullOrWhiteSpace(publicUrl))
+        {
+            throw new InvalidOperationException("MakePay did not return a payment link uid and public URL.");
+        }
+
+        return new MakePayPaymentLinkResponse(
+            uid,
+            publicUrl,
+            isAnonymous,
+            paymentLink.SelectToken("payload.currency")?.Value<string>() ??
+            paymentLink.SelectToken("settlement.currency")?.Value<string>(),
+            paymentLink.SelectToken("payload.asset")?.Value<string>() ??
+            paymentLink.SelectToken("settlement.defaultDestinationAsset")?.Value<string>(),
+            paymentLink.SelectToken("webhook.secret")?.Value<string>(),
+            paymentLink.SelectToken("webhook.secretLast4")?.Value<string>() ??
+            paymentLink.SelectToken("webhook.secret_last4")?.Value<string>());
     }
 
     public static void ApplyTokenResponse(MakePayPaymentMethodConfig config, JObject token)
@@ -330,4 +445,11 @@ public class MakePayApiClient
     }
 }
 
-public sealed record MakePayPaymentLinkResponse(string Uid, string PublicUrl);
+public sealed record MakePayPaymentLinkResponse(
+    string Uid,
+    string PublicUrl,
+    bool IsAnonymous,
+    string? SettlementCurrency,
+    string? SettlementAsset,
+    string? WebhookSecret,
+    string? WebhookSecretLast4);

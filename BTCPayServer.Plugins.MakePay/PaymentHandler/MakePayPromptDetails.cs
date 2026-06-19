@@ -7,10 +7,13 @@ public class MakePayPromptDetails
 {
     public string PaymentLinkUid { get; set; } = string.Empty;
     public string PaymentLinkUrl { get; set; } = string.Empty;
+    public bool IsAnonymous { get; set; }
     public decimal BtcAmount { get; set; }
     public string SettlementCurrency { get; set; } = "BTC";
     public string SettlementAsset { get; set; } = "BTC.BTC";
     public string SettlementAddress { get; set; } = string.Empty;
+    public string WebhookSecret { get; set; } = string.Empty;
+    public string WebhookSecretLast4 { get; set; } = string.Empty;
     public string WebhookUrl { get; set; } = string.Empty;
     public string CheckoutBaseUrl { get; set; } = "https://makepay.io";
     public bool RequestReceiptEmailFromCustomer { get; set; }

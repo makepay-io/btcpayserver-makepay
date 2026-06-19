@@ -45,6 +45,19 @@ public class MakePayInvoiceListener : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await SyncStorePaymentMethodExclusions(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to sync MakePay store payment method status.");
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -61,6 +74,41 @@ public class MakePayInvoiceListener : BackgroundService
             }
 
             await Task.Delay(ReconcileInterval, stoppingToken);
+        }
+    }
+
+    private async Task SyncStorePaymentMethodExclusions(CancellationToken cancellationToken)
+    {
+        var stores = await _storeRepository.GetStores();
+        var updated = 0;
+        foreach (var store in stores)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var config = store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
+                MakePayPlugin.MakePayPaymentMethodId,
+                _handlers);
+            if (config is null)
+            {
+                continue;
+            }
+
+            config = _secretProtector.Unprotect(config);
+            var storeBlob = store.GetStoreBlob();
+            var shouldExclude = !config.Enabled;
+            if (storeBlob.IsExcluded(MakePayPlugin.MakePayPaymentMethodId) == shouldExclude)
+            {
+                continue;
+            }
+
+            storeBlob.SetExcluded(MakePayPlugin.MakePayPaymentMethodId, shouldExclude);
+            store.SetStoreBlob(storeBlob);
+            await _storeRepository.UpdateStore(store);
+            updated++;
+        }
+
+        if (updated > 0)
+        {
+            _logger.LogInformation("Synced MakePay payment method status for {StoreCount} stores.", updated);
         }
     }
 
@@ -115,9 +163,14 @@ public class MakePayInvoiceListener : BackgroundService
             : _secretProtector.Unprotect(store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
                   MakePayPlugin.MakePayPaymentMethodId,
                   _handlers) ?? new MakePayPaymentMethodConfig());
-        if (config is not { IsConfigured: true })
+        if (config is null || !config.Enabled)
         {
             return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(promptDetails.CheckoutBaseUrl))
+        {
+            config.CheckoutBaseUrl = promptDetails.CheckoutBaseUrl;
         }
 
         var current = await _makePayApiClient.GetCurrentSession(

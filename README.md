@@ -4,6 +4,8 @@ This repository contains a standalone BTCPay Server plugin project that adds a n
 
 The plugin connects a BTCPay store to MakePay through native OAuth, creates MakePay payment links for BTCPay invoices, lets payers use MakePay-supported assets in the BTCPay checkout, and settles BTC on-chain to a fresh receive address from the BTCPay store wallet.
 
+Stores can also run without connecting a MakePay account. In that mode the plugin creates anonymous one-time MakePay payment links and sends the configured chain payment addresses with each invoice link.
+
 ## Build
 
 BTCPay plugin builds expect the BTCPay Server source tree as a submodule at:
@@ -41,3 +43,10 @@ The OAuth scopes are:
 ```text
 company:read makepay:payment-links:read makepay:payment-links:write makepay:settings:read makepay:settings:write
 ```
+
+Anonymous mode uses the same `POST /api/partner/v1/makepay/payment-links` route without MakePay credential headers. Configure the BTCPay Server site URL and the chain payment addresses in the plugin's Settlement tab before enabling anonymous payments. The BTC chain address is used as the default anonymous settlement route, and the full chain address book is sent as `settlement.sourceAddresses`.
+
+## Checkout Settings
+
+- Allowed currencies are shown to payers as a currency-first picker, then a network picker for the selected currency.
+- `Quote approval` is enabled by default. Disable it to skip the intermediate quote confirmation card and start the MakePay payment immediately after a valid quote.
