@@ -55,20 +55,13 @@ public class MakePayWebhookController : ControllerBase
         var config = _secretProtector.Unprotect(store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
             MakePayPlugin.MakePayPaymentMethodId,
             _handlers) ?? new MakePayPaymentMethodConfig());
-        if (config is not { IsConfigured: true })
+        if (!config.Enabled)
         {
             return BadRequest("Store is not configured for MakePay.");
         }
 
         using var reader = new StreamReader(Request.Body);
         var body = await reader.ReadToEndAsync();
-        var signature = Request.Headers[MakePayWebhookVerifier.SignatureHeader].FirstOrDefault();
-        if (!MakePayWebhookVerifier.Verify(body, signature ?? string.Empty, config.WebhookSecret!))
-        {
-            _logger.LogWarning("Rejected MakePay webhook for store {StoreId}: invalid signature.", storeId);
-            return BadRequest("Invalid signature.");
-        }
-
         JObject payload;
         try
         {
@@ -102,6 +95,22 @@ public class MakePayWebhookController : ControllerBase
         }
 
         var promptDetails = (MakePayPromptDetails)handler.ParsePaymentPromptDetails(prompt.Details);
+        var webhookSecret = !string.IsNullOrWhiteSpace(promptDetails.WebhookSecret)
+            ? promptDetails.WebhookSecret
+            : config.WebhookSecret;
+        if (string.IsNullOrWhiteSpace(webhookSecret))
+        {
+            _logger.LogWarning("Rejected MakePay webhook for store {StoreId}: missing webhook secret.", storeId);
+            return BadRequest("Store is not configured for MakePay webhooks.");
+        }
+
+        var signature = Request.Headers[MakePayWebhookVerifier.SignatureHeader].FirstOrDefault();
+        if (!MakePayWebhookVerifier.Verify(body, signature ?? string.Empty, webhookSecret))
+        {
+            _logger.LogWarning("Rejected MakePay webhook for store {StoreId}: invalid signature.", storeId);
+            return BadRequest("Invalid signature.");
+        }
+
         if (!string.Equals(promptDetails.PaymentLinkUid, paymentLinkUid, StringComparison.Ordinal))
         {
             _logger.LogWarning(

@@ -1,65 +1,250 @@
 @model BTCPayServer.Models.InvoicingModels.CheckoutModel
 
+<style>
+    .makepay-checkout {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    .makepay-checkout .makepay-option-list {
+        display: grid;
+        gap: .75rem;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .makepay-checkout .makepay-option {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        border: 1px solid var(--btcpay-border-color, #dee2e6);
+        border-radius: .5rem;
+        background: var(--btcpay-bg-tile, transparent);
+        color: inherit;
+        padding: .875rem;
+        text-align: left;
+        transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .makepay-checkout .makepay-option:hover,
+    .makepay-checkout .makepay-option:focus,
+    .makepay-checkout .makepay-option.active {
+        border-color: var(--btcpay-primary, #1e7a44);
+        box-shadow: 0 0 0 .125rem rgba(30, 122, 68, .15);
+    }
+
+    .makepay-checkout .makepay-option > span {
+        display: grid !important;
+        grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: .75rem;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .makepay-checkout .makepay-option > span > .flex-grow-1 {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .makepay-checkout .makepay-option-meta {
+        flex: 0 0 auto;
+        justify-self: end;
+        margin-left: 0;
+        white-space: nowrap;
+    }
+
+    .makepay-checkout .makepay-token-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 50%;
+        object-fit: contain;
+        background: rgba(127, 127, 127, .12);
+        flex: 0 0 auto;
+    }
+
+    .makepay-checkout .makepay-token-fallback {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--btcpay-primary, #1e7a44);
+        color: #fff;
+        font-weight: 700;
+        flex: 0 0 auto;
+    }
+
+    .makepay-checkout .makepay-search {
+        border-radius: .5rem;
+        max-width: 100%;
+    }
+
+    .makepay-checkout .makepay-back {
+        text-decoration: none;
+    }
+
+    .makepay-checkout .makepay-selection-title {
+        min-width: 0;
+    }
+
+    @@media (max-width: 420px) {
+        .makepay-checkout .makepay-option > span {
+            grid-template-columns: 2.5rem minmax(0, 1fr);
+        }
+
+        .makepay-checkout .makepay-option-meta {
+            grid-column: 2;
+            justify-self: start;
+            width: auto;
+        }
+    }
+</style>
+
 <template id="MakePayCheckout">
     <div class="payment-box makepay-checkout">
         <div v-if="error" class="alert alert-danger mb-3">{{ error }}</div>
         <div v-if="success" class="alert alert-success mb-3">{{ success }}</div>
 
         <div v-if="entryStep">
-            <div class="mb-3">
-                <label class="form-label" for="makepay-asset">Pay with</label>
-                <select id="makepay-asset"
-                        class="form-select"
-                        v-model="selectedAsset"
-                        v-on:change="resetQuote">
-                    <option value="" disabled>Select currency</option>
-                    <option v-for="token in tokens" :key="token.identifier" :value="token.identifier">
-                        {{ tokenLabel(token) }}
-                    </option>
-                </select>
+            <div v-if="!selectedCurrency">
+                <label class="form-label" for="makepay-asset-search">Pay with</label>
+                <input id="makepay-asset-search"
+                       class="form-control makepay-search mb-3"
+                       type="search"
+                       autocomplete="off"
+                       placeholder="Search asset"
+                       v-model.trim="assetSearch" />
+
+                <div class="makepay-option-list mb-3">
+                    <button v-for="group in filteredAssetGroups"
+                            :key="group.key"
+                            type="button"
+                            class="makepay-option"
+                            v-on:click="selectCurrency(group.key)">
+                        <span class="d-flex align-items-center gap-3">
+                            <img v-if="group.logoURI" :src="group.logoURI" alt="" class="makepay-token-icon" />
+                            <span v-else class="makepay-token-fallback">{{ group.ticker.slice(0, 2) }}</span>
+                            <span class="flex-grow-1 min-w-0">
+                                <span class="d-block fw-semibold">{{ group.ticker }}</span>
+                                <span class="d-block text-muted text-truncate">{{ group.name }}</span>
+                            </span>
+                            <span class="makepay-option-meta text-muted small">
+                                {{ group.networks.length }} {{ group.networks.length === 1 ? 'network' : 'networks' }}
+                            </span>
+                        </span>
+                    </button>
+                </div>
             </div>
 
-            <div v-if="requestReceiptEmailFromCustomer" class="mb-3">
-                <label class="form-label" for="makepay-receipt-email">Receipt email</label>
-                <input id="makepay-receipt-email"
-                       class="form-control"
-                       type="email"
-                       autocomplete="email"
-                       v-model.trim="receiptEmail"
-                       v-on:input="resetQuote" />
-            </div>
-
-            <div v-if="shouldCollectRefundAddress" class="mb-3">
-                <label class="form-label" for="makepay-refund-address">Refund address</label>
-                <input id="makepay-refund-address"
-                       class="form-control"
-                       v-model.trim="refundAddress"
-                       v-on:input="resetQuote" />
-            </div>
-
-            <div class="d-grid mb-3">
+            <div v-else-if="!selectedAsset">
                 <button type="button"
-                        class="btn btn-primary rounded-pill"
-                        v-on:click="pay"
-                        :disabled="payButtonDisabled">
-                    Pay
+                        class="btn btn-sm btn-link makepay-back p-0 mb-3"
+                        v-on:click="changeAsset"
+                        :disabled="isBusy">
+                    &larr; Back to currencies
                 </button>
+
+                <div class="d-flex align-items-start gap-3 mb-3">
+                    <div class="d-flex align-items-center gap-3 min-w-0">
+                        <img v-if="selectedCurrencyGroup && selectedCurrencyGroup.logoURI" :src="selectedCurrencyGroup.logoURI" alt="" class="makepay-token-icon" />
+                        <span v-else class="makepay-token-fallback">{{ selectedCurrency.slice(0, 2) }}</span>
+                        <span class="makepay-selection-title">
+                            <span class="d-block fw-semibold">Choose a network for {{ selectedCurrency }}</span>
+                            <span class="d-block text-muted text-truncate">Select the exact network your wallet will send from.</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="makepay-option-list mb-3">
+                    <button v-for="token in selectedCurrencyNetworks"
+                            :key="token.identifier"
+                            type="button"
+                            class="makepay-option"
+                            v-on:click="selectNetwork(token.identifier)">
+                        <span class="d-flex align-items-center gap-3">
+                            <img v-if="token.logoURI" :src="token.logoURI" alt="" class="makepay-token-icon" />
+                            <span v-else class="makepay-token-fallback">{{ token.chain.slice(0, 2) }}</span>
+                            <span class="flex-grow-1 min-w-0">
+                                <span class="d-block fw-semibold">{{ token.chain }} network</span>
+                                <span class="d-block text-muted text-truncate">{{ networkName(token) }}</span>
+                            </span>
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <div v-else>
+                <button type="button"
+                        class="btn btn-sm btn-link makepay-back p-0 mb-3"
+                        v-on:click="changeNetwork"
+                        :disabled="isBusy">
+                    &larr; Back to networks
+                </button>
+
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex align-items-start gap-3">
+                        <div class="d-flex align-items-center gap-3 min-w-0">
+                            <img v-if="selectedToken && selectedToken.logoURI" :src="selectedToken.logoURI" alt="" class="makepay-token-icon" />
+                            <span v-else class="makepay-token-fallback">{{ selectedCurrency.slice(0, 2) }}</span>
+                            <span class="makepay-selection-title">
+                                <span class="d-block fw-semibold">{{ selectedTokenLabel }}</span>
+                                <span class="d-block text-muted text-truncate">{{ selectedToken ? networkName(selectedToken) : '' }}</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="requestReceiptEmailFromCustomer" class="mb-3">
+                    <label class="form-label" for="makepay-receipt-email">Receipt email</label>
+                    <input id="makepay-receipt-email"
+                           class="form-control"
+                           type="email"
+                           autocomplete="email"
+                           v-model.trim="receiptEmail"
+                           v-on:input="resetQuote" />
+                </div>
+
+                <div v-if="shouldCollectRefundAddress" class="mb-3">
+                    <label class="form-label" for="makepay-refund-address">Refund address</label>
+                    <input id="makepay-refund-address"
+                           class="form-control"
+                           v-model.trim="refundAddress"
+                           v-on:input="resetQuote" />
+                    <div class="form-text">
+                        Used if this payment must be refunded on {{ selectedNetworkName }}.
+                    </div>
+                </div>
+
+                <div class="d-grid mb-3">
+                    <button type="button"
+                            class="btn btn-primary rounded-pill"
+                            v-on:click="pay"
+                            :disabled="payButtonDisabled">
+                        {{ displayQuoteApproval ? 'Review quote' : 'Pay now' }}
+                    </button>
+                </div>
             </div>
         </div>
 
         <div v-else-if="awaitingConfirmation">
+            <button type="button"
+                    class="btn btn-sm btn-link makepay-back p-0 mb-3"
+                    v-on:click="backToPaymentDetails"
+                    :disabled="isBusy">
+                &larr; Back
+            </button>
+
             <div class="border rounded p-3 mb-3">
-                <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                <div class="d-flex align-items-start gap-3 mb-3">
                     <div>
                         <div class="text-muted small">Pay with</div>
                         <div class="fw-semibold">{{ selectedTokenLabel }}</div>
                     </div>
-                    <button type="button"
-                            class="btn btn-sm btn-outline-secondary"
-                            v-on:click="changeSelection"
-                            :disabled="isBusy">
-                        Change
-                    </button>
                 </div>
 
                 <div class="text-muted small">You send</div>
@@ -134,7 +319,9 @@
         data: function () {
             return {
                 tokens: [],
+                selectedCurrency: '',
                 selectedAsset: '',
+                assetSearch: '',
                 receiptEmail: '',
                 refundAddress: '',
                 quoteSessionId: '',
@@ -177,11 +364,32 @@
             entryStep: function () {
                 return !this.awaitingConfirmation && !this.paymentStarted;
             },
+            displayQuoteApproval: function () {
+                return this.model.makePayDisplayQuoteApproval !== false;
+            },
             requestReceiptEmailFromCustomer: function () {
                 return this.model.makePayRequestReceiptEmailFromCustomer === true;
             },
             defaultReceiptEmail: function () {
                 return String(this.model.makePayDefaultReceiptEmail || '').trim();
+            },
+            settlementAssetKey: function () {
+                return this.normalizeAssetKey(this.model.makePaySettlementAsset || '');
+            },
+            merchantRefundAddresses: function () {
+                var source = this.model.makePayMerchantRefundAddresses || {};
+                var addresses = {};
+                Object.keys(source).forEach(function (key) {
+                    var normalizedKey = String(key || '').trim().toUpperCase();
+                    var value = String(source[key] || '').trim();
+                    if (normalizedKey && value) {
+                        addresses[normalizedKey] = value;
+                    }
+                });
+                return addresses;
+            },
+            isAnonymous: function () {
+                return this.model.makePayIsAnonymous === true;
             },
             refundAddressMode: function () {
                 return this.model.makePayRefundAddressMode === 'payer_entered'
@@ -195,6 +403,62 @@
                     .map(function (value) { return self.normalizeAssetKey(value); })
                     .filter(function (value) { return value.length > 0; });
             },
+            assetGroups: function () {
+                var groups = new Map();
+                this.tokens.forEach(function (token) {
+                    var key = (token.ticker || token.symbol || token.identifier).toUpperCase();
+                    if (!groups.has(key)) {
+                        groups.set(key, {
+                            key: key,
+                            ticker: key,
+                            name: token.name || key,
+                            logoURI: token.logoURI,
+                            networks: []
+                        });
+                    }
+
+                    var group = groups.get(key);
+                    group.networks.push(token);
+                    if (!group.logoURI && token.logoURI) {
+                        group.logoURI = token.logoURI;
+                    }
+                    if (group.name === key && token.name) {
+                        group.name = token.name;
+                    }
+                });
+
+                var priority = ['BTC', 'ETH', 'SOL', 'USDT', 'USDC'];
+                return Array.from(groups.values()).sort(function (a, b) {
+                    var left = priority.indexOf(a.key);
+                    var right = priority.indexOf(b.key);
+                    if (left !== -1 || right !== -1) {
+                        return (left === -1 ? 999 : left) - (right === -1 ? 999 : right);
+                    }
+                    return a.key.localeCompare(b.key);
+                });
+            },
+            filteredAssetGroups: function () {
+                var query = this.assetSearch.toLowerCase();
+                if (!query) {
+                    return this.assetGroups;
+                }
+
+                return this.assetGroups.filter(function (group) {
+                    return group.key.toLowerCase().indexOf(query) >= 0 ||
+                        String(group.name || '').toLowerCase().indexOf(query) >= 0;
+                });
+            },
+            selectedCurrencyGroup: function () {
+                var selected = this.selectedCurrency;
+                return this.assetGroups.find(function (group) {
+                    return group.key === selected;
+                }) || null;
+            },
+            selectedCurrencyNetworks: function () {
+                return this.selectedCurrencyGroup
+                    ? this.selectedCurrencyGroup.networks
+                    : [];
+            },
             selectedToken: function () {
                 var selected = this.selectedAsset;
                 return this.tokens.find(function (token) {
@@ -202,12 +466,39 @@
                 }) || null;
             },
             selectedTokenLabel: function () {
-                return this.selectedToken ? this.tokenLabel(this.selectedToken) : this.selectedAsset;
+                if (!this.selectedToken) {
+                    return this.selectedAsset;
+                }
+
+                return this.selectedToken.ticker + ' on ' + this.selectedToken.chain;
+            },
+            selectedChainKey: function () {
+                return this.selectedToken
+                    ? this.normalizeChainKey(this.selectedToken.chain || this.selectedToken.network || this.selectedToken.chainId)
+                    : '';
+            },
+            selectedNetworkName: function () {
+                return this.selectedToken
+                    ? this.networkName(this.selectedToken)
+                    : 'the selected network';
+            },
+            merchantRefundAddressForSelectedToken: function () {
+                return this.selectedChainKey
+                    ? String(this.merchantRefundAddresses[this.selectedChainKey] || '').trim()
+                    : '';
             },
             shouldCollectRefundAddress: function () {
-                return this.refundAddressMode === 'payer_entered' &&
-                    this.selectedToken &&
-                    this.selectedToken.requiresPayerRefundAddress === true;
+                if (!this.selectedToken) {
+                    return false;
+                }
+
+                return this.refundAddressMode === 'payer_entered' ||
+                    !this.merchantRefundAddressForSelectedToken;
+            },
+            paymentRefundAddress: function () {
+                return this.shouldCollectRefundAddress
+                    ? this.refundAddress.trim()
+                    : this.merchantRefundAddressForSelectedToken;
             },
             quoteAssetLabel: function () {
                 return this.shortAssetLabel(this.quoteAsset || this.selectedAsset);
@@ -246,6 +537,7 @@
             payButtonDisabled: function () {
                 return this.isBusy ||
                     !this.selectedAsset ||
+                    (this.shouldCollectRefundAddress && !this.refundAddress.trim()) ||
                     this.status === 'complete' ||
                     this.tokens.length === 0;
             }
@@ -276,17 +568,19 @@
                     if (!response.ok || !Array.isArray(payload)) {
                         throw new Error(payload && payload.error ? payload.error : 'Unable to load currencies.');
                     }
-                    var settlementAsset = this.model.makePaySettlementAsset || 'BTC.BTC';
                     var self = this;
                     this.tokens = payload
-                        .filter(function (token) { return token && token.identifier && token.identifier !== settlementAsset; })
+                        .filter(function (token) { return token && token.identifier; })
                         .map(function (token) {
                             return {
                                 identifier: String(token.identifier),
                                 ticker: String(token.ticker || token.symbol || ''),
                                 symbol: String(token.symbol || token.ticker || ''),
                                 name: String(token.name || token.ticker || token.identifier),
+                                chain: String(token.chain || token.network || token.chainId || ''),
+                                chainId: String(token.chainId || ''),
                                 network: String(token.network || token.chain || token.chainId || ''),
+                                logoURI: String(token.logoURI || token.logoUrl || token.icon || ''),
                                 requiresPayerRefundAddress:
                                     token.requiresPayerRefundAddress === true ||
                                     token.requires_payer_refund_address === true
@@ -294,12 +588,14 @@
                         })
                         .filter(function (token) {
                             return self.matchesAllowedAsset(token) &&
-                                (self.refundAddressMode === 'payer_entered' ||
-                                    token.requiresPayerRefundAddress !== true);
+                                !self.isSettlementAsset(token);
+                        })
+                        .sort(function (a, b) {
+                            if (a.ticker !== b.ticker) {
+                                return a.ticker.localeCompare(b.ticker);
+                            }
+                            return a.chain.localeCompare(b.chain);
                         });
-                    if (this.tokens.length > 0 && !this.selectedAsset) {
-                        this.selectedAsset = this.tokens[0].identifier;
-                    }
                     if (this.tokens.length === 0) {
                         this.error = 'No MakePay currencies are available with the current settings.';
                     }
@@ -309,12 +605,50 @@
                     this.isBusy = false;
                 }
             },
-            tokenLabel: function (token) {
-                var parts = [token.ticker || token.name];
-                if (token.network) {
-                    parts.push(token.network);
-                }
-                return parts.join(' - ');
+            selectCurrency: function (currency) {
+                this.selectedCurrency = currency;
+                this.selectedAsset = '';
+                this.assetSearch = '';
+                this.refundAddress = '';
+                this.resetQuote();
+            },
+            selectNetwork: function (identifier) {
+                this.selectedAsset = identifier;
+                this.refundAddress = '';
+                this.resetQuote();
+            },
+            changeAsset: function () {
+                this.selectedCurrency = '';
+                this.selectedAsset = '';
+                this.refundAddress = '';
+                this.resetQuote();
+            },
+            changeNetwork: function () {
+                this.selectedAsset = '';
+                this.refundAddress = '';
+                this.resetQuote();
+            },
+            backToPaymentDetails: function () {
+                this.awaitingConfirmation = false;
+                this.error = '';
+            },
+            networkName: function (token) {
+                var names = {
+                    ARB: 'Arbitrum Chain',
+                    AVAX: 'Avalanche Chain',
+                    BASE: 'Base Chain',
+                    BSC: 'BNB Chain',
+                    BTC: 'Bitcoin',
+                    ETH: 'Ethereum Chain',
+                    GNO: 'Gnosis Chain',
+                    NEAR: 'NEAR Chain',
+                    OP: 'Optimism Chain',
+                    POL: 'Polygon Chain',
+                    SOL: 'Solana Chain',
+                    TON: 'TON Chain',
+                    TRON: 'Tron Chain'
+                };
+                return names[token.chain] || token.network || token.chain || token.chainId || 'Network';
             },
             shortAssetLabel: function (value) {
                 var asset = String(value || '').trim();
@@ -333,7 +667,7 @@
             tokenKeys: function (token) {
                 var identifier = this.normalizeAssetKey(token.identifier);
                 var ticker = this.normalizeAssetKey(token.ticker || token.symbol);
-                var network = this.normalizeAssetKey(token.network);
+                var network = this.normalizeAssetKey(token.network || token.chain);
                 var name = this.normalizeAssetKey(token.name);
                 var keys = [identifier, ticker, name];
                 if (ticker && network) {
@@ -350,6 +684,9 @@
                     .toUpperCase()
                     .replace(/\s*([-.:])\s*/g, '$1');
             },
+            normalizeChainKey: function (value) {
+                return String(value || '').trim().toUpperCase();
+            },
             matchesAllowedAsset: function (token) {
                 if (this.allowedAssetKeys.length === 0) {
                     return true;
@@ -361,6 +698,10 @@
                         return key === allowed || key.indexOf(allowed) >= 0 || allowed.indexOf(key) >= 0;
                     });
                 });
+            },
+            isSettlementAsset: function (token) {
+                return this.settlementAssetKey &&
+                    this.normalizeAssetKey(token.identifier) === this.settlementAssetKey;
             },
             formatDuration: function (seconds) {
                 var value = Math.max(0, Number(seconds) || 0);
@@ -387,7 +728,7 @@
                 return [
                     this.selectedAsset,
                     this.receiptEmailForQuote(),
-                    this.shouldCollectRefundAddress ? this.refundAddress : '',
+                    this.paymentRefundAddress,
                     this.refundAddressMode
                 ].join('|');
             },
@@ -409,15 +750,6 @@
                 this.copied = false;
                 this.stopPolling();
             },
-            changeSelection: function () {
-                this.awaitingConfirmation = false;
-                this.quoteSessionId = '';
-                this.quoteAmount = '';
-                this.quoteAsset = '';
-                this.quoteKey = '';
-                this.quoteExpiresAtMs = 0;
-                this.status = '';
-            },
             receiptEmailForQuote: function () {
                 return this.requestReceiptEmailFromCustomer
                     ? this.receiptEmail.trim()
@@ -428,7 +760,7 @@
             },
             validateInput: function () {
                 if (!this.selectedAsset) {
-                    this.error = 'Select a currency.';
+                    this.error = this.selectedCurrency ? 'Select a network.' : 'Select a currency.';
                     return false;
                 }
 
@@ -440,8 +772,10 @@
                     return false;
                 }
 
-                if (this.shouldCollectRefundAddress && !this.refundAddress) {
-                    this.error = 'Enter a refund address for the selected currency.';
+                if (!this.paymentRefundAddress) {
+                    this.error = 'Enter a refund address for ' +
+                        (this.selectedToken && this.selectedToken.chain ? this.selectedToken.chain : 'the selected network') +
+                        ' before continuing.';
                     return false;
                 }
 
@@ -454,9 +788,9 @@
                     receiptEmail: this.receiptEmailForQuote()
                 };
 
-                if (this.shouldCollectRefundAddress) {
-                    body.refundAddress = this.refundAddress;
-                    body.sourceAddress = this.refundAddress;
+                if (this.paymentRefundAddress) {
+                    body.refundAddress = this.paymentRefundAddress;
+                    body.sourceAddress = this.paymentRefundAddress;
                 }
 
                 return body;
@@ -464,7 +798,7 @@
             pay: async function () {
                 if (this.awaitingConfirmation) {
                     if (this.quoteExpired || this.quoteKey !== this.currentQuoteKey()) {
-                        await this.quote();
+                        await this.quote(true);
                         return;
                     }
                     await this.startPayment();
@@ -475,7 +809,10 @@
                     return;
                 }
 
-                await this.quote();
+                var payload = await this.quote(this.displayQuoteApproval);
+                if (payload && !this.displayQuoteApproval) {
+                    await this.startPayment();
+                }
             },
             autoRefreshQuoteIfNeeded: async function () {
                 if (!this.awaitingConfirmation ||
@@ -488,12 +825,12 @@
 
                 this.autoRefreshInFlight = true;
                 try {
-                    await this.quote();
+                    await this.quote(true);
                 } finally {
                     this.autoRefreshInFlight = false;
                 }
             },
-            quote: async function () {
+            quote: async function (showConfirmation) {
                 if (!this.validateInput()) {
                     return null;
                 }
@@ -515,7 +852,7 @@
                     this.status = payload.status || 'quoted';
                     this.applyQuotedAmounts(payload);
                     this.quoteExpiresAtMs = this.resolveQuoteExpiry(payload);
-                    this.awaitingConfirmation = true;
+                    this.awaitingConfirmation = showConfirmation !== false;
                     this.nowMs = Date.now();
                     return payload;
                 } catch (err) {
