@@ -18,7 +18,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BTCPayServer.Plugins.MakePay\BTCPayServer.Plugins.MakePay.csproj" />
-    <ProjectReference Include="..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj" />
+    <ProjectReference Include="..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj">
+      <Properties>StaticWebAssetsEnabled=false</Properties>
+      <Private>false</Private>
+      <ExcludeAssets>runtime;native;build;buildTransitive;contentFiles</ExcludeAssets>
+    </ProjectReference>
   </ItemGroup>
 
 </Project>
