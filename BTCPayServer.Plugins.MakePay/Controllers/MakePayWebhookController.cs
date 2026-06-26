@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using BTCPayServer;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.MakePay.PaymentHandler;
@@ -11,6 +12,7 @@ using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using NicolasDorier.RateLimits;
 using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Plugins.MakePay.Controllers;
@@ -44,6 +46,8 @@ public class MakePayWebhookController : ControllerBase
 
     [HttpPost("{storeId}")]
     [IgnoreAntiforgeryToken]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
+    [RequestSizeLimit(MakePayCheckoutPolicy.MaxJsonBodyBytes)]
     public async Task<IActionResult> HandleWebhook(string storeId)
     {
         var store = await _storeRepository.FindStore(storeId);
@@ -60,8 +64,18 @@ public class MakePayWebhookController : ControllerBase
             return BadRequest("Store is not configured for MakePay.");
         }
 
+        if (Request.ContentLength > MakePayCheckoutPolicy.MaxJsonBodyBytes)
+        {
+            return BadRequest("Invalid JSON.");
+        }
+
         using var reader = new StreamReader(Request.Body);
         var body = await reader.ReadToEndAsync();
+        if (body.Length > MakePayCheckoutPolicy.MaxJsonBodyBytes)
+        {
+            return BadRequest("Invalid JSON.");
+        }
+
         JObject payload;
         try
         {
@@ -73,7 +87,7 @@ public class MakePayWebhookController : ControllerBase
         }
 
         var paymentLinkUid = Text(payload.SelectToken("paymentLink.uid"));
-        if (string.IsNullOrWhiteSpace(paymentLinkUid))
+        if (!MakePayCheckoutPolicy.IsValidPaymentLinkUid(paymentLinkUid))
         {
             return Ok();
         }
@@ -137,6 +151,11 @@ public class MakePayWebhookController : ControllerBase
 
     private static string? Text(JToken? token)
     {
+        if (token?.Type != JTokenType.String)
+        {
+            return null;
+        }
+
         var value = token?.Value<string>()?.Trim();
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }

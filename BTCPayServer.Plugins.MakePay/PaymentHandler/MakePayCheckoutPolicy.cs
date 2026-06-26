@@ -1,0 +1,157 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using BTCPayServer.Client.Models;
+using BTCPayServer.Services.Invoices;
+using Newtonsoft.Json.Linq;
+
+namespace BTCPayServer.Plugins.MakePay.PaymentHandler;
+
+public static class MakePayCheckoutPolicy
+{
+    public const int MaxJsonBodyBytes = 64 * 1024;
+    private static readonly Regex AssetIdentifier = new("^[A-Za-z0-9_.:-]{2,160}$", RegexOptions.Compiled);
+    private static readonly Regex SessionId = new("^[A-Za-z0-9_.:-]{1,160}$", RegexOptions.Compiled);
+
+    public static bool IsInvoicePayable(InvoiceEntity invoice) =>
+        invoice.GetInvoiceState().Status == InvoiceStatus.New &&
+        !invoice.IsExpired();
+
+    public static string? ValidatePaymentRequestBody(JToken body)
+    {
+        if (body is not JObject payload)
+        {
+            return "Expected a JSON object.";
+        }
+
+        var sellAsset = ReadString(payload, "sellAsset")?.Trim();
+        if (string.IsNullOrWhiteSpace(sellAsset) || !AssetIdentifier.IsMatch(sellAsset))
+        {
+            return "Invalid sellAsset.";
+        }
+
+        return ValidateOptionalString(payload, "paymentMethod", 32) ??
+               ValidateOptionalString(payload, "receiptEmail", 320) ??
+               ValidateOptionalString(payload, "refundAddress", 256) ??
+               ValidateOptionalString(payload, "sourceAddress", 256);
+    }
+
+    public static bool IsValidSessionId(string? sessionId)
+    {
+        var value = sessionId?.Trim();
+        return !string.IsNullOrWhiteSpace(value) && SessionId.IsMatch(value);
+    }
+
+    public static bool IsValidPaymentLinkUid(string? paymentLinkUid) =>
+        IsValidSessionId(paymentLinkUid);
+
+    public static JToken ApplyRefundAddressPolicy(
+        MakePayPaymentMethodConfig config,
+        MakePayPromptDetails prompt,
+        JToken body)
+    {
+        if (body is not JObject payload ||
+            !string.Equals(
+                prompt.RefundAddressMode,
+                MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet,
+                StringComparison.Ordinal))
+        {
+            return body;
+        }
+
+        var address = FindMerchantRefundAddress(
+            config,
+            prompt,
+            ReadString(payload, "sellAsset"));
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            payload.Remove("refundAddress");
+            payload.Remove("sourceAddress");
+            return payload;
+        }
+
+        payload["refundAddress"] = address;
+        payload["sourceAddress"] = address;
+        return payload;
+    }
+
+    public static string? FindMerchantRefundAddress(
+        MakePayPaymentMethodConfig config,
+        MakePayPromptDetails prompt,
+        string? sellAsset)
+    {
+        var addresses = config.GetChainAddresses().ToList();
+        if (!addresses.Any(address => string.Equals(address.Chain, "BTC", StringComparison.OrdinalIgnoreCase)) &&
+            !string.IsNullOrWhiteSpace(prompt.SettlementAddress) &&
+            string.Equals(prompt.SettlementCurrency, "BTC", StringComparison.OrdinalIgnoreCase))
+        {
+            addresses.Add(new MakePayChainAddress
+            {
+                Chain = "BTC",
+                Address = prompt.SettlementAddress
+            });
+        }
+
+        var chain = ResolveChainFromSellAsset(sellAsset, addresses);
+        return chain is null
+            ? null
+            : addresses.FirstOrDefault(address =>
+                string.Equals(address.Chain, chain, StringComparison.OrdinalIgnoreCase))?.Address;
+    }
+
+    private static string? ResolveChainFromSellAsset(
+        string? sellAsset,
+        IReadOnlyCollection<MakePayChainAddress> addresses)
+    {
+        var value = sellAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var knownChains = addresses
+            .Select(address => address.Chain)
+            .Where(chain => !string.IsNullOrWhiteSpace(chain))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (knownChains.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = value
+            .Split(['.', '-', ':', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => part.ToUpperInvariant());
+        foreach (var part in parts)
+        {
+            if (knownChains.Contains(part))
+            {
+                return part;
+            }
+        }
+
+        var normalized = value.ToUpperInvariant();
+        return knownChains.Contains(normalized)
+            ? normalized
+            : null;
+    }
+
+    private static string? ValidateOptionalString(JObject payload, string propertyName, int maxLength)
+    {
+        if (payload[propertyName] is null)
+        {
+            return null;
+        }
+
+        var value = ReadString(payload, propertyName);
+        return value is null || value.Length > maxLength
+            ? $"Invalid {propertyName}."
+            : null;
+    }
+
+    private static string? ReadString(JObject payload, string propertyName) =>
+        payload[propertyName]?.Type == JTokenType.String
+            ? payload[propertyName]?.Value<string>()
+            : null;
+}
