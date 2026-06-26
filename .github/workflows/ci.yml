@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        run: dotnet build BTCPayServer.Plugins.MakePay/BTCPayServer.Plugins.MakePay.csproj --configuration Release
+
+      - name: Test
+        run: dotnet test BTCPayServer.Plugins.MakePay.Tests/BTCPayServer.Plugins.MakePay.Tests.csproj --configuration Release --verbosity normal

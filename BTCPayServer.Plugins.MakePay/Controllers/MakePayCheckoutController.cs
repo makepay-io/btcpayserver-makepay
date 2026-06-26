@@ -1,10 +1,9 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using BTCPayServer;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.MakePay.PaymentHandler;
@@ -12,6 +11,8 @@ using BTCPayServer.Plugins.MakePay.Services;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using NicolasDorier.RateLimits;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -26,22 +27,26 @@ public class MakePayCheckoutController : ControllerBase
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly MakePayApiClient _makePayApiClient;
     private readonly MakePaySecretProtector _secretProtector;
+    private readonly ILogger<MakePayCheckoutController> _logger;
 
     public MakePayCheckoutController(
         StoreRepository storeRepository,
         InvoiceRepository invoiceRepository,
         PaymentMethodHandlerDictionary handlers,
         MakePayApiClient makePayApiClient,
-        MakePaySecretProtector secretProtector)
+        MakePaySecretProtector secretProtector,
+        ILogger<MakePayCheckoutController> logger)
     {
         _storeRepository = storeRepository;
         _invoiceRepository = invoiceRepository;
         _handlers = handlers;
         _makePayApiClient = makePayApiClient;
         _secretProtector = secretProtector;
+        _logger = logger;
     }
 
     [HttpGet("tokens")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
     public async Task<IActionResult> Tokens(string storeId, string invoiceId)
     {
         var resolved = await Resolve(storeId, invoiceId);
@@ -57,6 +62,8 @@ public class MakePayCheckoutController : ControllerBase
     }
 
     [HttpPost("quote")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
+    [RequestSizeLimit(MakePayCheckoutPolicy.MaxJsonBodyBytes)]
     public async Task<IActionResult> Quote(string storeId, string invoiceId)
     {
         var resolved = await Resolve(storeId, invoiceId);
@@ -71,7 +78,16 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = "Invalid JSON body." });
         }
 
-        var paymentBody = ApplyMerchantRefundAddress(resolved, body);
+        var validationError = MakePayCheckoutPolicy.ValidatePaymentRequestBody(body);
+        if (validationError is not null)
+        {
+            return BadRequest(new { error = validationError });
+        }
+
+        var paymentBody = MakePayCheckoutPolicy.ApplyRefundAddressPolicy(
+            resolved.Config,
+            resolved.Prompt,
+            body);
 
         return await Proxy(() => _makePayApiClient.SendPublic(
             resolved.Config,
@@ -81,6 +97,8 @@ public class MakePayCheckoutController : ControllerBase
     }
 
     [HttpPost("start")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
+    [RequestSizeLimit(MakePayCheckoutPolicy.MaxJsonBodyBytes)]
     public async Task<IActionResult> Start(string storeId, string invoiceId)
     {
         var resolved = await Resolve(storeId, invoiceId);
@@ -95,7 +113,16 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = "Invalid JSON body." });
         }
 
-        var paymentBody = ApplyMerchantRefundAddress(resolved, body);
+        var validationError = MakePayCheckoutPolicy.ValidatePaymentRequestBody(body);
+        if (validationError is not null)
+        {
+            return BadRequest(new { error = validationError });
+        }
+
+        var paymentBody = MakePayCheckoutPolicy.ApplyRefundAddressPolicy(
+            resolved.Config,
+            resolved.Prompt,
+            body);
 
         return await Proxy(() => _makePayApiClient.SendPublic(
             resolved.Config,
@@ -105,6 +132,7 @@ public class MakePayCheckoutController : ControllerBase
     }
 
     [HttpGet("status")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
     public async Task<IActionResult> Status(string storeId, string invoiceId, [FromQuery] string sessionId)
     {
         var resolved = await Resolve(storeId, invoiceId);
@@ -113,9 +141,9 @@ public class MakePayCheckoutController : ControllerBase
             return NotFound();
         }
 
-        if (string.IsNullOrWhiteSpace(sessionId))
+        if (!MakePayCheckoutPolicy.IsValidSessionId(sessionId))
         {
-            return BadRequest(new { error = "Missing required query: sessionId" });
+            return BadRequest(new { error = "Invalid sessionId." });
         }
 
         return await Proxy(() => _makePayApiClient.SendPublic(
@@ -144,6 +172,11 @@ public class MakePayCheckoutController : ControllerBase
             return null;
         }
 
+        if (!MakePayCheckoutPolicy.IsInvoicePayable(invoice))
+        {
+            return null;
+        }
+
         if (!_handlers.TryGetValue(MakePayPlugin.MakePayPaymentMethodId, out var handler))
         {
             return null;
@@ -166,8 +199,18 @@ public class MakePayCheckoutController : ControllerBase
 
     private async Task<JToken?> ReadJsonBody()
     {
+        if (Request.ContentLength > MakePayCheckoutPolicy.MaxJsonBodyBytes)
+        {
+            return null;
+        }
+
         using var reader = new StreamReader(Request.Body);
         var body = await reader.ReadToEndAsync();
+        if (body.Length > MakePayCheckoutPolicy.MaxJsonBodyBytes)
+        {
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(body))
         {
             return new JObject();
@@ -183,92 +226,6 @@ public class MakePayCheckoutController : ControllerBase
         }
     }
 
-    private static JToken ApplyMerchantRefundAddress(ResolvedCheckout resolved, JToken body)
-    {
-        if (body is not JObject payload ||
-            HasValue(payload, "refundAddress") ||
-            HasValue(payload, "sourceAddress") ||
-            !string.Equals(
-                resolved.Prompt.RefundAddressMode,
-                MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet,
-                StringComparison.Ordinal))
-        {
-            return body;
-        }
-
-        var address = FindMerchantRefundAddress(
-            resolved,
-            payload["sellAsset"]?.Value<string>());
-        if (string.IsNullOrWhiteSpace(address))
-        {
-            return body;
-        }
-
-        payload["refundAddress"] = address;
-        payload["sourceAddress"] = address;
-        return payload;
-    }
-
-    private static string? FindMerchantRefundAddress(ResolvedCheckout resolved, string? sellAsset)
-    {
-        var addresses = resolved.Config.GetChainAddresses().ToList();
-        if (!addresses.Any(address => string.Equals(address.Chain, "BTC", StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(resolved.Prompt.SettlementAddress) &&
-            string.Equals(resolved.Prompt.SettlementCurrency, "BTC", StringComparison.OrdinalIgnoreCase))
-        {
-            addresses.Add(new MakePayChainAddress
-            {
-                Chain = "BTC",
-                Address = resolved.Prompt.SettlementAddress
-            });
-        }
-
-        var chain = ResolveChainFromSellAsset(sellAsset, addresses);
-        return chain is null
-            ? null
-            : addresses.FirstOrDefault(address =>
-                string.Equals(address.Chain, chain, StringComparison.OrdinalIgnoreCase))?.Address;
-    }
-
-    private static string? ResolveChainFromSellAsset(
-        string? sellAsset,
-        IReadOnlyCollection<MakePayChainAddress> addresses)
-    {
-        var value = sellAsset?.Trim();
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        var knownChains = addresses
-            .Select(address => address.Chain)
-            .Where(chain => !string.IsNullOrWhiteSpace(chain))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (knownChains.Count == 0)
-        {
-            return null;
-        }
-
-        var parts = value
-            .Split(['.', '-', ':', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(part => part.ToUpperInvariant());
-        foreach (var part in parts)
-        {
-            if (knownChains.Contains(part))
-            {
-                return part;
-            }
-        }
-
-        var normalized = value.ToUpperInvariant();
-        return knownChains.Contains(normalized)
-            ? normalized
-            : null;
-    }
-
-    private static bool HasValue(JObject payload, string propertyName) =>
-        !string.IsNullOrWhiteSpace(payload[propertyName]?.Value<string>());
-
     private async Task<IActionResult> Proxy(Func<Task<JToken>> send)
     {
         try
@@ -277,7 +234,8 @@ public class MakePayCheckoutController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(502, new { error = ex.Message });
+            _logger.LogWarning(ex, "MakePay public checkout proxy failed.");
+            return StatusCode(502, new { error = "MakePay checkout is temporarily unavailable." });
         }
     }
 

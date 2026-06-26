@@ -72,9 +72,9 @@ public class MakePayController : Controller
                 "/api/swap/tokens");
             return Content(tokens.ToString(Formatting.None), "application/json");
         }
-        catch (Exception ex)
+        catch
         {
-            return StatusCode(502, new { error = ex.Message });
+            return StatusCode(502, new { error = "Unable to load MakePay currencies." });
         }
     }
 
@@ -104,9 +104,9 @@ public class MakePayController : Controller
                     config.ClientId = null;
                     config.DpopPrivateKeyPem = null;
                     config.DpopJkt = null;
-                    config.LastError = ex.Message;
+                    config.LastError = SafeError(ex.Message);
                     await SaveConfig(store, config.ClearOAuthState());
-                    SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay connection failed: " + ex.Message);
+                    SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay connection failed. Check the MakePay settings and try again.");
                     return RedirectToAction(nameof(Configure), new { storeId });
                 }
             case "disconnect":
@@ -141,9 +141,9 @@ public class MakePayController : Controller
         var config = GetConfig(store);
         if (!string.IsNullOrWhiteSpace(error))
         {
-            config.LastError = error;
+            config.LastError = SafeError(error);
             await SaveConfig(store, config.ClearOAuthState());
-            SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth failed: " + error);
+            SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth failed. Please try connecting again.");
             return RedirectToAction(nameof(Configure), new { storeId });
         }
 
@@ -182,9 +182,9 @@ public class MakePayController : Controller
         }
         catch (Exception ex)
         {
-            config.LastError = ex.Message;
+            config.LastError = SafeError(ex.Message);
             await SaveConfig(store, config.ClearOAuthState());
-            SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth exchange failed: " + ex.Message);
+            SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth exchange failed. Please try connecting again.");
         }
 
         return RedirectToAction(nameof(Configure), new { storeId });
@@ -306,6 +306,16 @@ public class MakePayController : Controller
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string SafeError(string? value)
+    {
+        var sanitized = string.IsNullOrWhiteSpace(value)
+            ? "MakePay request failed."
+            : value.Replace("\r", " ", StringComparison.Ordinal)
+                .Replace("\n", " ", StringComparison.Ordinal)
+                .Trim();
+        return sanitized.Length <= 256 ? sanitized : sanitized[..256];
     }
 
     private static string? NormalizeAllowedAssetIdentifiers(string? value)

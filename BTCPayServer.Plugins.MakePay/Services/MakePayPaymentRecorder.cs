@@ -86,7 +86,7 @@ public class MakePayPaymentRecorder
             InvoiceDataId = invoice.Id,
             Currency = "BTC",
             Amount = promptDetails.BtcAmount,
-            Status = PaymentStatus.Settled,
+            Status = PaymentStatus.Processing,
             Created = DateTimeOffset.UtcNow
         };
         payment.Set(invoice, handler, paymentData);
