@@ -19,6 +19,10 @@ public static class MakePayCheckoutPolicy
         invoice.GetInvoiceState().Status == InvoiceStatus.New &&
         !invoice.IsExpired();
 
+    public static bool InvoiceBelongsToStore(InvoiceEntity? invoice, string storeId) =>
+        invoice is not null &&
+        string.Equals(invoice.StoreId, storeId, StringComparison.Ordinal);
+
     public static string? ValidatePaymentRequestBody(JToken body)
     {
         if (body is not JObject payload)

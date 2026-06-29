@@ -102,6 +102,16 @@ public class MakePayWebhookController : ControllerBase
         }
 
         var invoice = await _invoiceRepository.GetInvoice(invoiceId);
+        if (!MakePayCheckoutPolicy.InvoiceBelongsToStore(invoice, store.Id))
+        {
+            _logger.LogWarning(
+                "Rejected MakePay webhook for store {StoreId}: link {PaymentLinkUid} resolved to invoice {InvoiceId} in another store.",
+                store.Id,
+                paymentLinkUid,
+                invoiceId);
+            return Ok();
+        }
+
         var prompt = invoice.GetPaymentPrompt(MakePayPlugin.MakePayPaymentMethodId);
         if (prompt is null || !_handlers.TryGetValue(MakePayPlugin.MakePayPaymentMethodId, out var handler))
         {
