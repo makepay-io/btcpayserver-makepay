@@ -512,7 +512,7 @@
     }
 
     function normalizeSymbol(value) {
-        var normalized = readText(value).split('.', 1)[0].toUpperCase();
+        var normalized = readText(value).toUpperCase();
         var aliases = {
             BINANCE: 'BNB',
             POLYGON: 'POL',
@@ -557,17 +557,36 @@
         return readText(token && (token.identifier || token.assetIdentifier || token.id));
     }
 
+    function normalizeIdentifierPart(value) {
+        return normalizeSymbol(value);
+    }
+
+    function identifierParts(token) {
+        return tokenIdentifier(token)
+            .split(/[.:-]/)
+            .map(normalizeIdentifierPart)
+            .filter(function (part) { return part.length > 0; });
+    }
+
     function tokenChain(token) {
-        return normalizeSymbol(tokenIdentifier(token)) ||
-            normalizeSymbol(token && (token.chain || token.chainCode || token.network || token.chainId));
+        var explicit = normalizeSymbol(token && (token.chain || token.chainCode || token.network || token.chainId));
+        if (explicit) {
+            return explicit;
+        }
+
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return addresses.has(part); }) || parts[0] || '';
     }
 
     function tokenCurrency(token) {
-        var identifier = tokenIdentifier(token);
-        var fromIdentifier = identifier.indexOf('.') > -1
-            ? identifier.split('.').slice(1).join('.')
-            : '';
-        return normalizeSymbol(token && (token.ticker || token.symbol || token.currency || fromIdentifier));
+        var explicit = normalizeSymbol(token && (token.ticker || token.symbol || token.currency));
+        if (explicit) {
+            return explicit;
+        }
+
+        var chain = tokenChain(token);
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return part !== chain; }) || parts[0] || '';
     }
 
     function tokenLabel(token, currency, chain) {
@@ -1012,7 +1031,7 @@
     }
 
     function normalizeChain(value) {
-        var normalized = readText(value).split('.', 1)[0].toUpperCase();
+        var normalized = readText(value).toUpperCase();
         var aliases = {
             BINANCE: 'BNB',
             POLYGON: 'POL',
@@ -1057,17 +1076,32 @@
         return readText(token && (token.identifier || token.assetIdentifier || token.id));
     }
 
+    function identifierParts(token) {
+        return tokenIdentifier(token)
+            .split(/[.:-]/)
+            .map(normalizeChain)
+            .filter(function (part) { return part.length > 0; });
+    }
+
     function tokenChain(token) {
-        return normalizeChain(tokenIdentifier(token)) ||
-            normalizeChain(token && (token.chain || token.chainCode || token.network || token.chainId));
+        var explicit = normalizeChain(token && (token.chain || token.chainCode || token.network || token.chainId));
+        if (explicit) {
+            return explicit;
+        }
+
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return Object.prototype.hasOwnProperty.call(chainLabels, part); }) || parts[0] || '';
     }
 
     function tokenTicker(token) {
-        var identifier = tokenIdentifier(token);
-        var fromIdentifier = identifier.indexOf('.') > -1
-            ? identifier.split('.').slice(1).join('.')
-            : '';
-        return readText(token && (token.ticker || token.symbol || token.currency || fromIdentifier));
+        var explicit = readText(token && (token.ticker || token.symbol || token.currency));
+        if (explicit) {
+            return explicit;
+        }
+
+        var chain = tokenChain(token);
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return part !== chain; }) || parts[0] || tokenIdentifier(token);
     }
 
     function tokenLogo(token) {
