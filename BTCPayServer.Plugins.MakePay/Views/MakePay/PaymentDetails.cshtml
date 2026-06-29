@@ -19,11 +19,32 @@
 <div class="sticky-header d-sm-flex align-items-center justify-content-between">
     <div>
         <div class="text-uppercase text-muted small fw-semibold mb-1">Payment details</div>
-        <h2 class="mb-0">
+        <h2 class="mb-0 d-flex align-items-center gap-2">
             <vc:truncate-center text="@(!string.IsNullOrWhiteSpace(payment.SessionId) ? payment.SessionId : payment.PaymentId)" classes="truncate-center-id" />
+            <button type="button"
+                    class="btn btn-link p-0 text-secondary makepay-help-button"
+                    data-makepay-help-toggle="makepay-payment-details-help"
+                    aria-controls="makepay-payment-details-help"
+                    aria-expanded="false"
+                    title="About MakePay payment details">
+                <vc:icon symbol="info" />
+            </button>
         </h2>
     </div>
     <span class="badge rounded-pill @StatusClass(payment.Status) mt-3 mt-sm-0">@payment.Status</span>
+</div>
+
+<div id="makepay-payment-details-help" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="makepay-payment-details-help" hidden>
+    <div class="d-flex gap-3">
+        <div class="flex-fill">
+            <p class="mb-2">This page combines BTCPay invoice data with the MakePay session data recorded for the payment.</p>
+            <p class="mb-2">The Invoice and Payment sections show reconciliation fields such as quoted pay amount, settlement amount, MakePay status, and delivery id.</p>
+            <p class="mb-0">The Deposit and Transactions sections show the payer network, deposit destination, payment request, and transaction explorer links when a supported transaction id is available.</p>
+        </div>
+        <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="makepay-payment-details-help" aria-label="Close">
+            <vc:icon symbol="close" />
+        </button>
+    </div>
 </div>
 
 <div class="row g-4">
@@ -135,6 +156,14 @@
         overflow-wrap: anywhere;
     }
 
+    .makepay-help-button {
+        line-height: 1;
+    }
+
+    .makepay-page-help[hidden] {
+        display: none !important;
+    }
+
     @@media (max-width: 575.98px) {
         .makepay-detail-list {
             grid-template-columns: 1fr;
@@ -147,6 +176,42 @@
         }
     }
 </style>
+
+<script>
+(function () {
+    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
+        var key = panel.dataset.makepayHelp;
+        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
+        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var dismissedKey = key + ':dismissed';
+        function setVisible(visible) {
+            panel.hidden = !visible;
+            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        }
+
+        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+
+        toggle.addEventListener('click', function () {
+            if (panel.hidden) {
+                localStorage.removeItem(dismissedKey);
+                setVisible(true);
+            } else {
+                localStorage.setItem(dismissedKey, 'true');
+                setVisible(false);
+            }
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            setVisible(false);
+        });
+    });
+})();
+</script>
 
 @functions {
     private static string ValueOrDash(string? value)

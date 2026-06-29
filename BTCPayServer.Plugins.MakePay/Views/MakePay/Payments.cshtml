@@ -9,14 +9,95 @@
 
 <div class="sticky-header-setup"></div>
 <div class="sticky-header d-sm-flex align-items-center justify-content-between">
-    <h2 class="mb-0">@ViewData["Title"]</h2>
-    <form method="get" class="d-flex gap-2 mt-3 mt-sm-0">
-        <input name="searchTerm" value="@Model.SearchTerm" class="form-control" type="search" placeholder="Search invoice, session, address, tx" />
-        <button type="submit" class="btn btn-secondary">Search</button>
-    </form>
+    <h2 class="mb-0 d-flex align-items-center gap-2">
+        <span>@ViewData["Title"]</span>
+        <button type="button"
+                class="btn btn-link p-0 text-secondary makepay-help-button"
+                data-makepay-help-toggle="makepay-payments-help"
+                aria-controls="makepay-payments-help"
+                aria-expanded="false"
+                title="About MakePay payments">
+            <vc:icon symbol="info" />
+        </button>
+    </h2>
 </div>
 
 <partial name="_StatusMessage" />
+
+<div id="makepay-payments-help" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="makepay-payments-help" hidden>
+    <div class="d-flex gap-3">
+        <div class="flex-fill">
+            <p class="mb-2">MakePay payments show every BTCPay invoice payment recorded through the MakePay payment method.</p>
+            <p class="mb-2">Use this page to inspect the MakePay session, selected asset, deposit address, transaction id, BTCPay payment status, and settlement amount.</p>
+            <p class="mb-0">Search matches invoice ids, order ids, MakePay sessions, payment links, deposit addresses, payment requests, transaction ids, assets, networks, and statuses.</p>
+        </div>
+        <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="makepay-payments-help" aria-label="Close">
+            <vc:icon symbol="close" />
+        </button>
+    </div>
+</div>
+
+<form method="get" class="makepay-filter-bar d-flex flex-wrap align-items-end gap-3 mb-4">
+    <div class="flex-grow-1 makepay-filter-search">
+        <label class="form-label" for="makepay-search">Search</label>
+        <input id="makepay-search" name="searchTerm" value="@Model.SearchTerm" class="form-control" type="search" placeholder="Invoice, session, address, tx" />
+    </div>
+    <div>
+        <label class="form-label" for="makepay-status-filter">Status</label>
+        <select id="makepay-status-filter" name="status" class="form-select">
+            <option value="">All Status</option>
+            @foreach (var option in Model.StatusOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.StatusFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-asset-filter">Asset</label>
+        <select id="makepay-asset-filter" name="asset" class="form-select">
+            <option value="">All Assets</option>
+            @foreach (var option in Model.AssetOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.AssetFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-network-filter">Network</label>
+        <select id="makepay-network-filter" name="network" class="form-select">
+            <option value="">All Networks</option>
+            @foreach (var option in Model.NetworkOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.NetworkFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-time-filter">Time</label>
+        <select id="makepay-time-filter" name="timeRange" class="form-select" data-makepay-time-filter>
+            <option value="">All Time</option>
+            <option value="24h" selected="@(Selected("24h", Model.TimeRange))">Last 24 hours</option>
+            <option value="3d" selected="@(Selected("3d", Model.TimeRange))">Last 3 days</option>
+            <option value="7d" selected="@(Selected("7d", Model.TimeRange))">Last 7 days</option>
+            <option value="30d" selected="@(Selected("30d", Model.TimeRange))">Last 30 days</option>
+            <option value="custom" selected="@(Selected("custom", Model.TimeRange))">Custom range</option>
+        </select>
+    </div>
+    <div class="makepay-custom-range" data-makepay-custom-range>
+        <label class="form-label" for="makepay-start-date">Start</label>
+        <input id="makepay-start-date" name="startDate" value="@Model.StartDate" class="form-control" type="datetime-local" />
+    </div>
+    <div class="makepay-custom-range" data-makepay-custom-range>
+        <label class="form-label" for="makepay-end-date">End</label>
+        <input id="makepay-end-date" name="endDate" value="@Model.EndDate" class="form-control" type="datetime-local" />
+    </div>
+    <input type="hidden" name="skip" value="0" />
+    <button type="submit" class="btn btn-primary">Search</button>
+    @if (HasFilters())
+    {
+        <a asp-action="Payments" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Clear</a>
+    }
+</form>
 
 <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
@@ -142,6 +223,12 @@
                    asp-action="Payments"
                    asp-route-storeId="@Model.StoreId"
                    asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-status="@Model.StatusFilter"
+                   asp-route-asset="@Model.AssetFilter"
+                   asp-route-network="@Model.NetworkFilter"
+                   asp-route-timeRange="@Model.TimeRange"
+                   asp-route-startDate="@Model.StartDate"
+                   asp-route-endDate="@Model.EndDate"
                    asp-route-skip="@Math.Max(0, Model.Skip - Model.Take)">Previous</a>
             }
         </div>
@@ -152,13 +239,103 @@
                    asp-action="Payments"
                    asp-route-storeId="@Model.StoreId"
                    asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-status="@Model.StatusFilter"
+                   asp-route-asset="@Model.AssetFilter"
+                   asp-route-network="@Model.NetworkFilter"
+                   asp-route-timeRange="@Model.TimeRange"
+                   asp-route-startDate="@Model.StartDate"
+                   asp-route-endDate="@Model.EndDate"
                    asp-route-skip="@(Model.Skip + Model.Take)">Next</a>
             }
         </div>
     </div>
 }
 
+<style>
+    .makepay-help-button {
+        line-height: 1;
+    }
+
+    .makepay-page-help[hidden],
+    .makepay-custom-range[hidden] {
+        display: none !important;
+    }
+
+    .makepay-filter-search {
+        min-width: min(100%, 20rem);
+    }
+
+    .makepay-filter-bar select,
+    .makepay-filter-bar input[type="datetime-local"] {
+        min-width: 10rem;
+    }
+</style>
+
+<script>
+(function () {
+    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
+        var key = panel.dataset.makepayHelp;
+        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
+        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var dismissedKey = key + ':dismissed';
+        function setVisible(visible) {
+            panel.hidden = !visible;
+            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        }
+
+        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+
+        toggle.addEventListener('click', function () {
+            if (panel.hidden) {
+                localStorage.removeItem(dismissedKey);
+                setVisible(true);
+            } else {
+                localStorage.setItem(dismissedKey, 'true');
+                setVisible(false);
+            }
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            setVisible(false);
+        });
+    });
+
+    var timeFilter = document.querySelector('[data-makepay-time-filter]');
+    var customRangeFields = document.querySelectorAll('[data-makepay-custom-range]');
+    if (timeFilter && customRangeFields.length) {
+        function updateCustomRange() {
+            var show = timeFilter.value === 'custom';
+            customRangeFields.forEach(function (field) {
+                field.hidden = !show;
+            });
+        }
+
+        timeFilter.addEventListener('change', updateCustomRange);
+        updateCustomRange();
+    }
+})();
+</script>
+
 @functions {
+    private bool HasFilters()
+    {
+        return !string.IsNullOrWhiteSpace(Model.SearchTerm) ||
+               !string.IsNullOrWhiteSpace(Model.StatusFilter) ||
+               !string.IsNullOrWhiteSpace(Model.AssetFilter) ||
+               !string.IsNullOrWhiteSpace(Model.NetworkFilter) ||
+               !string.IsNullOrWhiteSpace(Model.TimeRange);
+    }
+
+    private static bool Selected(string option, string? value)
+    {
+        return string.Equals(option, value, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string StatusClass(BTCPayServer.Data.PaymentStatus status)
     {
         return status switch

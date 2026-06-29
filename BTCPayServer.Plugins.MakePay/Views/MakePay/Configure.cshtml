@@ -6,12 +6,35 @@
     var title = ViewData["MakePayTitle"]?.ToString() ?? "MakePay General";
     ViewData.SetActivePage(activePage, "MakePay", title);
     var storeId = Context.Request.RouteValues["storeId"]?.ToString();
+    var helpId = $"makepay-{section}-help";
+    var helpTitle = section switch
+    {
+        "currencies" => "Allowed currencies",
+        "settlement" => "Settlement addresses",
+        _ => "MakePay settings"
+    };
+    var helpBody = section switch
+    {
+        "currencies" => "Choose which MakePay assets and networks customers can use at checkout. Leaving everything enabled gives payers the broadest choice, while disabling assets narrows checkout to the routes you want to support.",
+        "settlement" => "Save merchant-controlled chain addresses for anonymous MakePay links. These addresses are used for merchant refund routing on the selected pay-in network and can also be selected as custom settlement routes.",
+        _ => "Configure how MakePay appears at checkout, whether quotes require review, how receipts are handled, how refunds are routed, and how anonymous MakePay links settle."
+    };
 }
 
 <form method="post">
     <div class="sticky-header-setup"></div>
     <div class="sticky-header d-sm-flex align-items-center justify-content-between">
-        <h2 class="mb-0">@ViewData["Title"]</h2>
+        <h2 class="mb-0 d-flex align-items-center gap-2">
+            <span>@ViewData["Title"]</span>
+            <button type="button"
+                    class="btn btn-link p-0 text-secondary makepay-help-button"
+                    data-makepay-help-toggle="@helpId"
+                    aria-controls="@helpId"
+                    aria-expanded="false"
+                    title="About @title">
+                <vc:icon symbol="info" />
+            </button>
+        </h2>
         <div class="d-flex gap-3 mt-3 mt-sm-0">
             @if (section == "general" && Model.IsConfigured)
             {
@@ -26,6 +49,18 @@
     </div>
 
     <partial name="_StatusMessage" />
+
+    <div id="@helpId" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="@helpId" hidden>
+        <div class="d-flex gap-3">
+            <div class="flex-fill">
+                <h3 class="h5 mb-2">@helpTitle</h3>
+                <p class="mb-0">@helpBody</p>
+            </div>
+            <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="@helpId" aria-label="Close">
+                <vc:icon symbol="close" />
+            </button>
+        </div>
+    </div>
 
     <div class="row">
         <div class="col-xl-8 col-xxl-constrain">
@@ -445,10 +480,50 @@
     .makepay-notice [data-role="makepay-notice-toggle"] .icon {
         transition: transform .15s ease-in-out;
     }
+
+    .makepay-help-button {
+        line-height: 1;
+    }
+
+    .makepay-page-help[hidden] {
+        display: none !important;
+    }
 </style>
 
 <script>
 (function () {
+    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
+        var key = panel.dataset.makepayHelp;
+        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
+        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var dismissedKey = key + ':dismissed';
+        function setVisible(visible) {
+            panel.hidden = !visible;
+            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        }
+
+        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+
+        toggle.addEventListener('click', function () {
+            if (panel.hidden) {
+                localStorage.removeItem(dismissedKey);
+                setVisible(true);
+            } else {
+                localStorage.setItem(dismissedKey, 'true');
+                setVisible(false);
+            }
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            setVisible(false);
+        });
+    });
+
     document.querySelectorAll('[data-makepay-notice]').forEach(function (notice) {
         var key = notice.dataset.makepayNotice;
         var toggle = notice.querySelector('[data-role="makepay-notice-toggle"]');

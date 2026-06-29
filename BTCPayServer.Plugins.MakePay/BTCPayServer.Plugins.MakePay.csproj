@@ -9,7 +9,7 @@
   <PropertyGroup>
     <Product>MakePay - Accept more than 80+ coins and chains</Product>
     <Description>Adds MakePay as a native BTCPay Server checkout payment method with BTC on-chain settlement to the store wallet.</Description>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

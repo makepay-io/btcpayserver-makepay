@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
@@ -200,6 +201,12 @@ public class MakePayController : Controller
     public async Task<IActionResult> Payments(
         string storeId,
         [FromQuery] string? searchTerm,
+        [FromQuery] string? status,
+        [FromQuery] string? asset,
+        [FromQuery] string? network,
+        [FromQuery] string? timeRange,
+        [FromQuery] string? startDate,
+        [FromQuery] string? endDate,
         [FromQuery] int skip = 0)
     {
         var store = await _storeRepository.FindStore(storeId);
@@ -209,13 +216,12 @@ public class MakePayController : Controller
         }
 
         const int take = 50;
-        const int invoiceScanLimit = 500;
+        const int invoiceScanLimit = 1000;
         skip = Math.Max(0, skip);
         var query = new InvoiceQuery
         {
             StoreId = [store.Id],
             IncludeArchived = true,
-            TextSearch = NormalizeOptional(searchTerm),
             Take = invoiceScanLimit
         };
         var invoices = await _invoiceRepository.GetInvoices(query);
@@ -225,7 +231,39 @@ public class MakePayController : Controller
                 .Select(payment => ToPaymentListItem(invoice, payment)))
             .OrderByDescending(payment => payment.Created)
             .ToList();
-        var items = makePayPayments
+        var statusOptions = makePayPayments
+            .Select(payment => payment.Status.ToString())
+            .Concat(makePayPayments.Select(payment => payment.MakePayStatus))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var assetOptions = makePayPayments
+            .SelectMany(payment => new[] { payment.SellAsset, payment.BuyAsset, payment.Currency })
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var networkOptions = makePayPayments
+            .Select(payment => payment.DepositNetwork)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+
+        var filteredPayments = FilterPayments(
+                makePayPayments,
+                searchTerm,
+                status,
+                asset,
+                network,
+                timeRange,
+                startDate,
+                endDate)
+            .ToList();
+        var items = filteredPayments
             .Skip(skip)
             .Take(take)
             .ToList();
@@ -234,10 +272,19 @@ public class MakePayController : Controller
         {
             StoreId = store.Id,
             SearchTerm = NormalizeOptional(searchTerm),
+            StatusFilter = NormalizeOptional(status),
+            AssetFilter = NormalizeOptional(asset),
+            NetworkFilter = NormalizeOptional(network),
+            TimeRange = NormalizeOptional(timeRange),
+            StartDate = NormalizeOptional(startDate),
+            EndDate = NormalizeOptional(endDate),
             Skip = skip,
             Take = take,
-            HasMore = makePayPayments.Count > skip + take,
-            Payments = items
+            HasMore = filteredPayments.Count > skip + take,
+            Payments = items,
+            StatusOptions = statusOptions,
+            AssetOptions = assetOptions,
+            NetworkOptions = networkOptions
         };
 
         return View(model);
@@ -514,6 +561,113 @@ public class MakePayController : Controller
             TransactionIds = details.TransactionIds,
             DeliveryId = details.DeliveryId
         };
+    }
+
+    private static IEnumerable<MakePayPaymentListItem> FilterPayments(
+        IEnumerable<MakePayPaymentListItem> payments,
+        string? searchTerm,
+        string? status,
+        string? asset,
+        string? network,
+        string? timeRange,
+        string? startDate,
+        string? endDate)
+    {
+        var filtered = payments;
+        var search = NormalizeOptional(searchTerm);
+        var normalizedStatus = NormalizeOptional(status);
+        var normalizedAsset = NormalizeOptional(asset);
+        var normalizedNetwork = NormalizeOptional(network);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            filtered = filtered.Where(payment => PaymentMatchesSearch(payment, search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedStatus))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.Status.ToString(), normalizedStatus, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.MakePayStatus, normalizedStatus, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedAsset))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.SellAsset, normalizedAsset, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.BuyAsset, normalizedAsset, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.Currency, normalizedAsset, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedNetwork))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.DepositNetwork, normalizedNetwork, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var from = NormalizeOptional(timeRange) switch
+        {
+            "24h" => now.AddHours(-24),
+            "3d" => now.AddDays(-3),
+            "7d" => now.AddDays(-7),
+            "30d" => now.AddDays(-30),
+            "custom" => ParseDateFilter(startDate),
+            _ => null
+        };
+        var to = NormalizeOptional(timeRange) == "custom" ? ParseDateFilter(endDate) : null;
+
+        if (from is not null)
+        {
+            filtered = filtered.Where(payment => payment.Created >= from.Value);
+        }
+
+        if (to is not null)
+        {
+            filtered = filtered.Where(payment => payment.Created <= to.Value);
+        }
+
+        return filtered;
+    }
+
+    private static DateTimeOffset? ParseDateFilter(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var offset))
+        {
+            return offset.ToUniversalTime();
+        }
+
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var date)
+            ? new DateTimeOffset(date).ToUniversalTime()
+            : null;
+    }
+
+    private static bool PaymentMatchesSearch(MakePayPaymentListItem payment, string search)
+    {
+        return ContainsSearch(payment.InvoiceId, search) ||
+               ContainsSearch(payment.OrderId, search) ||
+               ContainsSearch(payment.PaymentId, search) ||
+               ContainsSearch(payment.SessionId, search) ||
+               ContainsSearch(payment.PaymentLinkUid, search) ||
+               ContainsSearch(payment.MakePayStatus, search) ||
+               ContainsSearch(payment.SellAsset, search) ||
+               ContainsSearch(payment.BuyAsset, search) ||
+               ContainsSearch(payment.DepositNetwork, search) ||
+               ContainsSearch(payment.DepositAddress, search) ||
+               ContainsSearch(payment.PaymentRequest, search) ||
+               ContainsSearch(payment.TransactionIds, search) ||
+               ContainsSearch(payment.DeliveryId, search);
+    }
+
+    private static bool ContainsSearch(string? value, string search)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               value.Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<MakePayExplorerLink> BuildExplorerLinks(MakePayPaymentListItem payment)

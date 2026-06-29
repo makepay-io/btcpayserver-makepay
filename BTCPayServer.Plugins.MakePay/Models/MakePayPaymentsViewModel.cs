@@ -9,10 +9,19 @@ public class MakePayPaymentsViewModel
 {
     public string StoreId { get; set; } = string.Empty;
     public string? SearchTerm { get; set; }
+    public string? StatusFilter { get; set; }
+    public string? AssetFilter { get; set; }
+    public string? NetworkFilter { get; set; }
+    public string? TimeRange { get; set; }
+    public string? StartDate { get; set; }
+    public string? EndDate { get; set; }
     public int Skip { get; set; }
     public int Take { get; set; } = 50;
     public bool HasMore { get; set; }
     public List<MakePayPaymentListItem> Payments { get; set; } = [];
+    public List<string> StatusOptions { get; set; } = [];
+    public List<string> AssetOptions { get; set; } = [];
+    public List<string> NetworkOptions { get; set; } = [];
 }
 
 public class MakePayPaymentListItem
