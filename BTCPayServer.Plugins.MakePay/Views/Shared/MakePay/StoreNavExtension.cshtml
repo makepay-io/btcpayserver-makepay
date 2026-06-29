@@ -13,7 +13,12 @@
     var storeId = ScopeProvider.GetCurrentStoreId();
     MakePayPaymentMethodConfig? config = null;
     var status = "pending";
-    var isMakePayActive = ViewData.IsCategory("MakePay");
+    var controller = Context.Request.RouteValues["controller"]?.ToString();
+    var requestPath = Context.Request.Path.Value ?? string.Empty;
+    var isMakePayActive =
+        ViewData.IsCategory("MakePay") ||
+        string.Equals(controller, "MakePay", StringComparison.OrdinalIgnoreCase) ||
+        requestPath.Contains("/makepay", StringComparison.OrdinalIgnoreCase);
 
     if (!string.IsNullOrEmpty(storeId))
     {
