@@ -9,7 +9,7 @@
   <PropertyGroup>
     <Product>MakePay - Accept more than 80+ coins and chains</Product>
     <Description>Accept 80+ altcoins with Makepay’s fully decentralized BTCPay plugin. Customers pay in their preferred coin; merchants receive their chosen asset via instant conversion.</Description>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
