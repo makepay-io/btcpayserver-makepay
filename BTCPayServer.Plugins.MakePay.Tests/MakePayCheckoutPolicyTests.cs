@@ -90,6 +90,67 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
+    public void CheckoutRequestPolicyInjectsMerchantControlledDefaults()
+    {
+        var config = new MakePayPaymentMethodConfig
+        {
+            ChainAddressesJson = MakePayPaymentMethodConfig.SerializeChainAddresses(
+            [
+                new MakePayChainAddress
+                {
+                    Chain = "ETH",
+                    Address = "0x1111111111111111111111111111111111111111"
+                }
+            ])
+        };
+        var prompt = new MakePayPromptDetails
+        {
+            DefaultReceiptEmail = "merchant@example.com",
+            RequestReceiptEmailFromCustomer = false,
+            RefundAddressMode = MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet
+        };
+        var payload = JObject.Parse(
+            """
+            {
+              "sellAsset": "USDC.ETH",
+              "receiptEmail": "payer@example.com",
+              "refundAddress": "0x2222222222222222222222222222222222222222",
+              "sourceAddress": "0x3333333333333333333333333333333333333333"
+            }
+            """);
+
+        var result = (JObject)MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(config, prompt, payload);
+
+        Assert.Equal("merchant@example.com", result["receiptEmail"]?.Value<string>());
+        Assert.Equal("0x1111111111111111111111111111111111111111", result["refundAddress"]?.Value<string>());
+        Assert.Equal("0x1111111111111111111111111111111111111111", result["sourceAddress"]?.Value<string>());
+    }
+
+    [Fact]
+    public void CheckoutRequestPolicyKeepsPayerReceiptEmailOnlyWhenConfigured()
+    {
+        var config = new MakePayPaymentMethodConfig();
+        var prompt = new MakePayPromptDetails
+        {
+            RequestReceiptEmailFromCustomer = true,
+            RefundAddressMode = MakePayPaymentMethodConfig.RefundAddressModePayerEntered
+        };
+        var payload = JObject.Parse(
+            """
+            {
+              "sellAsset": "USDC.ETH",
+              "receiptEmail": "payer@example.com",
+              "refundAddress": "0x2222222222222222222222222222222222222222"
+            }
+            """);
+
+        var result = (JObject)MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(config, prompt, payload);
+
+        Assert.Equal("payer@example.com", result["receiptEmail"]?.Value<string>());
+        Assert.Equal("0x2222222222222222222222222222222222222222", result["refundAddress"]?.Value<string>());
+    }
+
+    [Fact]
     public void InvoiceMustBeNewAndUnexpiredToUsePublicCheckoutApi()
     {
         var payable = new InvoiceEntity

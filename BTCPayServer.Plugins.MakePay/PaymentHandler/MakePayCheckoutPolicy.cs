@@ -51,13 +51,32 @@ public static class MakePayCheckoutPolicy
     public static bool IsValidPaymentLinkUid(string? paymentLinkUid) =>
         IsValidSessionId(paymentLinkUid);
 
+    public static JToken ApplyCheckoutRequestPolicy(
+        MakePayPaymentMethodConfig config,
+        MakePayPromptDetails prompt,
+        JToken body)
+    {
+        if (body is not JObject payload)
+        {
+            return body;
+        }
+
+        ApplyReceiptEmailPolicy(prompt, payload);
+        ApplyRefundAddressPolicy(config, prompt, payload);
+        return payload;
+    }
+
     public static JToken ApplyRefundAddressPolicy(
         MakePayPaymentMethodConfig config,
         MakePayPromptDetails prompt,
         JToken body)
     {
-        if (body is not JObject payload ||
-            !string.Equals(
+        if (body is not JObject payload)
+        {
+            return body;
+        }
+
+        if (!string.Equals(
                 prompt.RefundAddressMode,
                 MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet,
                 StringComparison.Ordinal))
@@ -79,6 +98,23 @@ public static class MakePayCheckoutPolicy
         payload["refundAddress"] = address;
         payload["sourceAddress"] = address;
         return payload;
+    }
+
+    private static void ApplyReceiptEmailPolicy(MakePayPromptDetails prompt, JObject payload)
+    {
+        if (prompt.RequestReceiptEmailFromCustomer)
+        {
+            return;
+        }
+
+        var defaultReceiptEmail = prompt.DefaultReceiptEmail?.Trim();
+        if (string.IsNullOrWhiteSpace(defaultReceiptEmail))
+        {
+            payload.Remove("receiptEmail");
+            return;
+        }
+
+        payload["receiptEmail"] = defaultReceiptEmail;
     }
 
     public static string? FindMerchantRefundAddress(

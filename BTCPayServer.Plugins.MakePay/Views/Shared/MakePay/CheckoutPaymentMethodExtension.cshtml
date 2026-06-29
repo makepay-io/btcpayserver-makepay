@@ -370,23 +370,8 @@
             requestReceiptEmailFromCustomer: function () {
                 return this.model.makePayRequestReceiptEmailFromCustomer === true;
             },
-            defaultReceiptEmail: function () {
-                return String(this.model.makePayDefaultReceiptEmail || '').trim();
-            },
             settlementAssetKey: function () {
                 return this.normalizeAssetKey(this.model.makePaySettlementAsset || '');
-            },
-            merchantRefundAddresses: function () {
-                var source = this.model.makePayMerchantRefundAddresses || {};
-                var addresses = {};
-                Object.keys(source).forEach(function (key) {
-                    var normalizedKey = String(key || '').trim().toUpperCase();
-                    var value = String(source[key] || '').trim();
-                    if (normalizedKey && value) {
-                        addresses[normalizedKey] = value;
-                    }
-                });
-                return addresses;
             },
             isAnonymous: function () {
                 return this.model.makePayIsAnonymous === true;
@@ -472,33 +457,22 @@
 
                 return this.selectedToken.ticker + ' on ' + this.selectedToken.chain;
             },
-            selectedChainKey: function () {
-                return this.selectedToken
-                    ? this.normalizeChainKey(this.selectedToken.chain || this.selectedToken.network || this.selectedToken.chainId)
-                    : '';
-            },
             selectedNetworkName: function () {
                 return this.selectedToken
                     ? this.networkName(this.selectedToken)
                     : 'the selected network';
-            },
-            merchantRefundAddressForSelectedToken: function () {
-                return this.selectedChainKey
-                    ? String(this.merchantRefundAddresses[this.selectedChainKey] || '').trim()
-                    : '';
             },
             shouldCollectRefundAddress: function () {
                 if (!this.selectedToken) {
                     return false;
                 }
 
-                return this.refundAddressMode === 'payer_entered' ||
-                    !this.merchantRefundAddressForSelectedToken;
+                return this.refundAddressMode === 'payer_entered';
             },
             paymentRefundAddress: function () {
                 return this.shouldCollectRefundAddress
                     ? this.refundAddress.trim()
-                    : this.merchantRefundAddressForSelectedToken;
+                    : '';
             },
             quoteAssetLabel: function () {
                 return this.shortAssetLabel(this.quoteAsset || this.selectedAsset);
@@ -544,7 +518,6 @@
         },
         mounted: function () {
             var self = this;
-            this.receiptEmail = this.defaultReceiptEmail;
             this.clockTimer = setInterval(function () {
                 self.nowMs = Date.now();
                 self.autoRefreshQuoteIfNeeded();
@@ -684,9 +657,6 @@
                     .toUpperCase()
                     .replace(/\s*([-.:])\s*/g, '$1');
             },
-            normalizeChainKey: function (value) {
-                return String(value || '').trim().toUpperCase();
-            },
             matchesAllowedAsset: function (token) {
                 if (this.allowedAssetKeys.length === 0) {
                     return true;
@@ -753,7 +723,7 @@
             receiptEmailForQuote: function () {
                 return this.requestReceiptEmailFromCustomer
                     ? this.receiptEmail.trim()
-                    : this.defaultReceiptEmail;
+                    : '';
             },
             validateEmail: function (value) {
                 return /^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(value);
@@ -765,7 +735,7 @@
                 }
 
                 var email = this.receiptEmailForQuote();
-                if (!email || !this.validateEmail(email)) {
+                if (this.requestReceiptEmailFromCustomer && (!email || !this.validateEmail(email))) {
                     this.error = this.requestReceiptEmailFromCustomer
                         ? 'Enter a valid receipt email.'
                         : 'Set a default receipt email in the MakePay settings.';
@@ -784,9 +754,12 @@
             buildPaymentBody: function () {
                 var body = {
                     sellAsset: this.selectedAsset,
-                    paymentMethod: 'crypto',
-                    receiptEmail: this.receiptEmailForQuote()
+                    paymentMethod: 'crypto'
                 };
+
+                if (this.requestReceiptEmailFromCustomer) {
+                    body.receiptEmail = this.receiptEmailForQuote();
+                }
 
                 if (this.paymentRefundAddress) {
                     body.refundAddress = this.paymentRefundAddress;

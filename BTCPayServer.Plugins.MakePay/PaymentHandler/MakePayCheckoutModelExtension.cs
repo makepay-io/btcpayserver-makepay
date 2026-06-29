@@ -40,18 +40,6 @@ public class MakePayCheckoutModelExtension : ICheckoutModelExtension
             context.Store.GetPaymentMethodConfig<MakePayPaymentMethodConfig>(
                 MakePayPlugin.MakePayPaymentMethodId,
                 _handlers) ?? new MakePayPaymentMethodConfig());
-        var merchantRefundAddresses = new JObject();
-        foreach (var address in config.GetChainAddresses())
-        {
-            merchantRefundAddresses[address.Chain.ToUpperInvariant()] = address.Address;
-        }
-
-        if (merchantRefundAddresses["BTC"] is null &&
-            !string.IsNullOrWhiteSpace(promptDetails.SettlementAddress) &&
-            string.Equals(promptDetails.SettlementCurrency, "BTC", System.StringComparison.OrdinalIgnoreCase))
-        {
-            merchantRefundAddresses["BTC"] = promptDetails.SettlementAddress;
-        }
         var refundAddressMode = string.Equals(
             promptDetails.RefundAddressMode,
             MakePayPaymentMethodConfig.RefundAddressModePayerEntered,
@@ -60,26 +48,17 @@ public class MakePayCheckoutModelExtension : ICheckoutModelExtension
             : MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet;
 
         context.Model.CheckoutBodyComponentName = CheckoutBodyComponentName;
-        context.Model.AdditionalData["makePayPaymentLinkUid"] = JToken.FromObject(promptDetails.PaymentLinkUid);
         context.Model.AdditionalData["makePayStoreId"] = JToken.FromObject(context.Store.Id);
-        context.Model.AdditionalData["makePayPublicUrl"] = JToken.FromObject(promptDetails.PaymentLinkUrl);
         context.Model.AdditionalData["makePayIsAnonymous"] = JToken.FromObject(promptDetails.IsAnonymous);
-        context.Model.AdditionalData["makePayAmount"] = JToken.FromObject(promptDetails.BtcAmount);
-        context.Model.AdditionalData["makePaySettlementAddress"] = JToken.FromObject(promptDetails.SettlementAddress);
         context.Model.AdditionalData["makePaySettlementAsset"] = JToken.FromObject(promptDetails.SettlementAsset);
-        context.Model.AdditionalData["makePayCheckoutBaseUrl"] =
-            JToken.FromObject(promptDetails.CheckoutBaseUrl);
         context.Model.AdditionalData["makePayRequestReceiptEmailFromCustomer"] =
-            JToken.FromObject(config.RequestReceiptEmailFromCustomer);
-        context.Model.AdditionalData["makePayDefaultReceiptEmail"] =
-            JToken.FromObject(config.DefaultReceiptEmail?.Trim() ?? string.Empty);
+            JToken.FromObject(promptDetails.RequestReceiptEmailFromCustomer);
         context.Model.AdditionalData["makePayDisplayQuoteApproval"] =
             JToken.FromObject(config.DisplayQuoteApproval);
         context.Model.AdditionalData["makePayRefundAddressMode"] =
             JToken.FromObject(refundAddressMode);
         context.Model.AdditionalData["makePayAllowedAssetIdentifiers"] =
             JToken.FromObject(config.AllowedAssetIdentifiers?.Trim() ?? string.Empty);
-        context.Model.AdditionalData["makePayMerchantRefundAddresses"] = merchantRefundAddresses;
         context.Model.Address = $"{promptDetails.BtcAmount:0.########} BTC";
         context.Model.ShowRecommendedFee = false;
     }

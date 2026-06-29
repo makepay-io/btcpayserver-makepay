@@ -84,7 +84,7 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = validationError });
         }
 
-        var paymentBody = MakePayCheckoutPolicy.ApplyRefundAddressPolicy(
+        var paymentBody = MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(
             resolved.Config,
             resolved.Prompt,
             body);
@@ -119,7 +119,7 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = validationError });
         }
 
-        var paymentBody = MakePayCheckoutPolicy.ApplyRefundAddressPolicy(
+        var paymentBody = MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(
             resolved.Config,
             resolved.Prompt,
             body);
