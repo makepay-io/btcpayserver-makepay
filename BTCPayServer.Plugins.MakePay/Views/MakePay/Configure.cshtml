@@ -4,7 +4,7 @@
     var section = ViewData["MakePaySection"]?.ToString() ?? "general";
     var activePage = ViewData["MakePayActivePage"]?.ToString() ?? "MakePayGeneral";
     var title = ViewData["MakePayTitle"]?.ToString() ?? "MakePay General";
-    ViewData.SetActivePage(activePage, title, "MakePay");
+    ViewData.SetActivePage(activePage, "MakePay", title);
     var storeId = Context.Request.RouteValues["storeId"]?.ToString();
 }
 
@@ -49,8 +49,19 @@
             }
             else
             {
-                <div class="alert alert-info">
-                    You can connect a MakePay account, or use anonymous one-time MakePay payment links after adding chain addresses below.
+                <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-connect-options">
+                    <div class="d-flex align-items-start justify-content-between gap-3">
+                        <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                            <vc:icon symbol="caret-down" />
+                            <span class="fw-semibold">Connection options</span>
+                        </button>
+                        <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                            <vc:icon symbol="close" />
+                        </button>
+                    </div>
+                    <div class="makepay-notice-body mt-2">
+                        You can connect a MakePay account, or use anonymous one-time MakePay payment links after adding chain addresses below.
+                    </div>
                 </div>
             }
 
@@ -123,13 +134,35 @@
                     </div>
 
                     <h4 class="mt-5 mb-3">Settlement</h4>
-                    <div class="alert alert-info mb-0">
-                        Connected MakePay payments reserve a fresh BTC receive address from this BTCPay store for each invoice. Anonymous payments use the chain addresses configured in the Settlement tab.
+                    <div class="alert alert-info makepay-notice mb-0" role="alert" data-makepay-notice="makepay-settlement-summary">
+                        <div class="d-flex align-items-start justify-content-between gap-3">
+                            <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                <vc:icon symbol="caret-down" />
+                                <span class="fw-semibold">Settlement routing</span>
+                            </button>
+                            <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                <vc:icon symbol="close" />
+                            </button>
+                        </div>
+                        <div class="makepay-notice-body mt-2">
+                            Connected MakePay payments reserve a fresh BTC receive address from this BTCPay store for each invoice. Anonymous payments use the chain addresses configured in the Settlement tab.
+                        </div>
                     </div>
 
                     <h4 class="mt-5 mb-3">Anonymous Checkout Policy</h4>
-                    <div class="alert alert-info">
-                        These defaults are sent when the plugin creates anonymous MakePay payment links. Connected MakePay accounts continue to use the policy configured in MakePay.
+                    <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-policy">
+                        <div class="d-flex align-items-start justify-content-between gap-3">
+                            <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                <vc:icon symbol="caret-down" />
+                                <span class="fw-semibold">Anonymous checkout defaults</span>
+                            </button>
+                            <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                <vc:icon symbol="close" />
+                            </button>
+                        </div>
+                        <div class="makepay-notice-body mt-2">
+                            These defaults are sent when the plugin creates anonymous MakePay payment links. Connected MakePay accounts continue to use the policy configured in MakePay.
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -206,8 +239,19 @@
 
                     @if (Model.IsConfigured)
                     {
-                        <div class="alert alert-info">
-                            Settlement for connected MakePay accounts is managed in the MakePay wallet. These routes are read-only here so the plugin stays aligned with your MakePay account settings.
+                        <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-connected-settlement">
+                            <div class="d-flex align-items-start justify-content-between gap-3">
+                                <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                    <vc:icon symbol="caret-down" />
+                                    <span class="fw-semibold">Connected settlement</span>
+                                </button>
+                                <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                    <vc:icon symbol="close" />
+                                </button>
+                            </div>
+                            <div class="makepay-notice-body mt-2">
+                                Settlement for connected MakePay accounts is managed in the MakePay wallet. These routes are read-only here so the plugin stays aligned with your MakePay account settings.
+                            </div>
                         </div>
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
                             <a class="btn btn-outline-primary" href="https://www.makecrypto.io/home/wemine/wallet" target="_blank" rel="noreferrer noopener">
@@ -226,8 +270,19 @@
                     }
                     else
                     {
-                        <div class="alert alert-info">
-                            Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses for merchant refund routing on the selected pay-in network; the BTC address is also used as the default anonymous settlement route.
+                        <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-settlement">
+                            <div class="d-flex align-items-start justify-content-between gap-3">
+                                <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                    <vc:icon symbol="caret-down" />
+                                    <span class="fw-semibold">Anonymous settlement</span>
+                                </button>
+                                <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                    <vc:icon symbol="close" />
+                                </button>
+                            </div>
+                            <div class="makepay-notice-body mt-2">
+                                Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses for merchant refund routing on the selected pay-in network; the BTC address is also used as the default anonymous settlement route.
+                            </div>
                         </div>
 
                         <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
@@ -301,7 +356,72 @@
         border-color: rgba(255, 92, 92, .45) !important;
         color: #ff6b6b !important;
     }
+
+    .makepay-notice [data-role="makepay-notice-toggle"] {
+        min-width: 0;
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .makepay-notice [data-role="makepay-notice-toggle"]:hover,
+    .makepay-notice [data-role="makepay-notice-toggle"]:focus {
+        text-decoration: underline;
+    }
+
+    .makepay-notice.is-collapsed .makepay-notice-body {
+        display: none;
+    }
+
+    .makepay-notice.is-collapsed [data-role="makepay-notice-toggle"] .icon {
+        transform: rotate(-90deg);
+    }
+
+    .makepay-notice [data-role="makepay-notice-toggle"] .icon {
+        transition: transform .15s ease-in-out;
+    }
 </style>
+
+<script>
+(function () {
+    document.querySelectorAll('[data-makepay-notice]').forEach(function (notice) {
+        var key = notice.dataset.makepayNotice;
+        var toggle = notice.querySelector('[data-role="makepay-notice-toggle"]');
+        var dismiss = notice.querySelector('[data-role="makepay-notice-dismiss"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var collapsedKey = key + ':collapsed';
+        var dismissedKey = key + ':dismissed';
+
+        if (localStorage.getItem(dismissedKey) === 'true') {
+            notice.remove();
+            return;
+        }
+
+        function setCollapsed(collapsed) {
+            notice.classList.toggle('is-collapsed', collapsed);
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            if (collapsed) {
+                localStorage.setItem(collapsedKey, 'true');
+            } else {
+                localStorage.removeItem(collapsedKey);
+            }
+        }
+
+        setCollapsed(localStorage.getItem(collapsedKey) === 'true');
+
+        toggle.addEventListener('click', function () {
+            setCollapsed(!notice.classList.contains('is-collapsed'));
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            notice.remove();
+        });
+    });
+})();
+</script>
 
 <script>
 (function () {

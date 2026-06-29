@@ -62,7 +62,7 @@ public class MakePayController : Controller
     [HttpGet("general")]
     public Task<IActionResult> General(string storeId)
     {
-        return Settings(storeId, "general", "MakePay General");
+        return Settings(storeId, "general", "MakePay Settings");
     }
 
     [HttpGet("currencies")]

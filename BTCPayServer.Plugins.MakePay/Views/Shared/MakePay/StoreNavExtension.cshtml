@@ -13,6 +13,7 @@
     var storeId = ScopeProvider.GetCurrentStoreId();
     MakePayPaymentMethodConfig? config = null;
     var status = "pending";
+    var isMakePayActive = ViewData.IsCategory("MakePay");
 
     if (!string.IsNullOrEmpty(storeId))
     {
@@ -42,40 +43,43 @@
             <span>MakePay</span>
         </a>
     </li>
-    <li class="nav-item nav-item-sub">
-        <a permission="@Policies.CanModifyStoreSettings"
-           layout-menu-item="MakePayPayments"
-           asp-controller="MakePay"
-           asp-action="Payments"
-           asp-route-storeId="@storeId">
-            <span>Payments</span>
-        </a>
-    </li>
-    <li class="nav-item nav-item-sub">
-        <a permission="@Policies.CanModifyStoreSettings"
-           layout-menu-item="MakePayGeneral"
-           asp-controller="MakePay"
-           asp-action="General"
-           asp-route-storeId="@storeId">
-            <span>General</span>
-        </a>
-    </li>
-    <li class="nav-item nav-item-sub">
-        <a permission="@Policies.CanModifyStoreSettings"
-           layout-menu-item="MakePayCurrencies"
-           asp-controller="MakePay"
-           asp-action="AllowedCurrencies"
-           asp-route-storeId="@storeId">
-            <span>Allowed currencies</span>
-        </a>
-    </li>
-    <li class="nav-item nav-item-sub">
-        <a permission="@Policies.CanModifyStoreSettings"
-           layout-menu-item="MakePaySettlement"
-           asp-controller="MakePay"
-           asp-action="Settlement"
-           asp-route-storeId="@storeId">
-            <span>Settlement</span>
-        </a>
-    </li>
+    @if (isMakePayActive)
+    {
+        <li class="nav-item nav-item-sub">
+            <a permission="@Policies.CanModifyStoreSettings"
+               layout-menu-item="MakePayPayments"
+               asp-controller="MakePay"
+               asp-action="Payments"
+               asp-route-storeId="@storeId">
+                <span>Payments</span>
+            </a>
+        </li>
+        <li class="nav-item nav-item-sub">
+            <a permission="@Policies.CanModifyStoreSettings"
+               layout-menu-item="MakePayGeneral"
+               asp-controller="MakePay"
+               asp-action="General"
+               asp-route-storeId="@storeId">
+                <span>Settings</span>
+            </a>
+        </li>
+        <li class="nav-item nav-item-sub">
+            <a permission="@Policies.CanModifyStoreSettings"
+               layout-menu-item="MakePayCurrencies"
+               asp-controller="MakePay"
+               asp-action="AllowedCurrencies"
+               asp-route-storeId="@storeId">
+                <span>Allowed currencies</span>
+            </a>
+        </li>
+        <li class="nav-item nav-item-sub">
+            <a permission="@Policies.CanModifyStoreSettings"
+               layout-menu-item="MakePaySettlement"
+               asp-controller="MakePay"
+               asp-action="Settlement"
+               asp-route-storeId="@storeId">
+                <span>Settlement</span>
+            </a>
+        </li>
+    }
 }
