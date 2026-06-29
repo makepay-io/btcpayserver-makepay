@@ -114,6 +114,19 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
+    public void WebhookResolvedInvoiceMustBelongToSigningStore()
+    {
+        var invoice = new InvoiceEntity
+        {
+            StoreId = "victim-store"
+        };
+
+        Assert.True(MakePayCheckoutPolicy.InvoiceBelongsToStore(invoice, "victim-store"));
+        Assert.False(MakePayCheckoutPolicy.InvoiceBelongsToStore(invoice, "attacker-store"));
+        Assert.False(MakePayCheckoutPolicy.InvoiceBelongsToStore(null, "attacker-store"));
+    }
+
+    [Fact]
     public void PaymentRequestBodyRequiresValidAssetIdentifier()
     {
         Assert.Null(MakePayCheckoutPolicy.ValidatePaymentRequestBody(

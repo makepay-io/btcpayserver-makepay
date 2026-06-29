@@ -25,11 +25,10 @@
     </ProjectReference>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="../submodules/btcpayserver/BTCPayServer/bin/$(Configuration)/net8.0/BTCPayServer.dll"
-          Link="BTCPayServer.dll"
-          CopyToOutputDirectory="PreserveNewest"
+  <Target Name="CopyBTCPayServerRuntime" AfterTargets="Build">
+    <Copy SourceFiles="../submodules/btcpayserver/BTCPayServer/bin/$(Configuration)/net8.0/BTCPayServer.dll"
+          DestinationFolder="$(OutputPath)"
           Condition="Exists('../submodules/btcpayserver/BTCPayServer/bin/$(Configuration)/net8.0/BTCPayServer.dll')" />
-  </ItemGroup>
+  </Target>
 
 </Project>

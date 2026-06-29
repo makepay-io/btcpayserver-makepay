@@ -22,4 +22,4 @@ jobs:
         run: dotnet build BTCPayServer.Plugins.MakePay/BTCPayServer.Plugins.MakePay.csproj --configuration Release
 
       - name: Test
-        run: dotnet test BTCPayServer.Plugins.MakePay.Tests/BTCPayServer.Plugins.MakePay.Tests.csproj --configuration Release --verbosity normal
+        run: dotnet test BTCPayServer.Plugins.MakePay.Tests/BTCPayServer.Plugins.MakePay.Tests.csproj --configuration Release --verbosity normal -m:1
