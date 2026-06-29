@@ -127,6 +127,32 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
+    public void MerchantWalletModeNormalizesEvmRefundAddressForMakePay()
+    {
+        var config = new MakePayPaymentMethodConfig
+        {
+            ChainAddressesJson = MakePayPaymentMethodConfig.SerializeChainAddresses(
+            [
+                new MakePayChainAddress
+                {
+                    Chain = "ETH",
+                    Address = "0xa895520E4B739c3163A667863670E3a23Fc3b120"
+                }
+            ])
+        };
+        var prompt = new MakePayPromptDetails
+        {
+            RefundAddressMode = MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet
+        };
+        var payload = JObject.Parse("""{ "sellAsset": "ETH.USDT-0xdac17f958d2ee523a2206206994597c13d831ec7" }""");
+
+        var result = (JObject)MakePayCheckoutPolicy.ApplyRefundAddressPolicy(config, prompt, payload);
+
+        Assert.Equal("0xa895520e4b739c3163a667863670e3a23fc3b120", result["refundAddress"]?.Value<string>());
+        Assert.Equal("0xa895520e4b739c3163a667863670e3a23fc3b120", result["sourceAddress"]?.Value<string>());
+    }
+
+    [Fact]
     public void CheckoutRequestPolicyKeepsPayerReceiptEmailOnlyWhenConfigured()
     {
         var config = new MakePayPaymentMethodConfig();

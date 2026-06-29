@@ -232,6 +232,11 @@ public class MakePayCheckoutController : ControllerBase
         {
             return JsonContent(await send());
         }
+        catch (MakePayApiException ex) when ((int)ex.StatusCode is >= 400 and < 500)
+        {
+            _logger.LogInformation(ex, "MakePay public checkout request was rejected.");
+            return JsonContent(ex.Payload, (int)ex.StatusCode);
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "MakePay public checkout proxy failed.");
@@ -239,9 +244,14 @@ public class MakePayCheckoutController : ControllerBase
         }
     }
 
-    private ContentResult JsonContent(JToken payload)
+    private ContentResult JsonContent(JToken payload, int statusCode = 200)
     {
-        return Content(payload.ToString(Formatting.None), "application/json");
+        return new ContentResult
+        {
+            Content = payload.ToString(Formatting.None),
+            ContentType = "application/json",
+            StatusCode = statusCode
+        };
     }
 
     private sealed record ResolvedCheckout(

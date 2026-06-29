@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using BTCPayServer.Client.Models;
+using BTCPayServer.Plugins.MakePay.Services;
 using BTCPayServer.Services.Invoices;
 using Newtonsoft.Json.Linq;
 
@@ -87,7 +88,8 @@ public static class MakePayCheckoutPolicy
         var address = FindMerchantRefundAddress(
             config,
             prompt,
-            ReadString(payload, "sellAsset"));
+            ReadString(payload, "sellAsset"),
+            out var chain);
         if (string.IsNullOrWhiteSpace(address))
         {
             var payerAddress = ReadString(payload, "refundAddress") ?? ReadString(payload, "sourceAddress");
@@ -105,8 +107,9 @@ public static class MakePayCheckoutPolicy
             return payload;
         }
 
-        payload["refundAddress"] = address;
-        payload["sourceAddress"] = address;
+        var normalizedAddress = MakePayApiClient.NormalizeAddressForMakePay(chain, address);
+        payload["refundAddress"] = normalizedAddress;
+        payload["sourceAddress"] = normalizedAddress;
         return payload;
     }
 
@@ -130,7 +133,14 @@ public static class MakePayCheckoutPolicy
     public static string? FindMerchantRefundAddress(
         MakePayPaymentMethodConfig config,
         MakePayPromptDetails prompt,
-        string? sellAsset)
+        string? sellAsset) =>
+        FindMerchantRefundAddress(config, prompt, sellAsset, out _);
+
+    public static string? FindMerchantRefundAddress(
+        MakePayPaymentMethodConfig config,
+        MakePayPromptDetails prompt,
+        string? sellAsset,
+        out string? chain)
     {
         var addresses = config.GetChainAddresses().ToList();
         if (!addresses.Any(address => string.Equals(address.Chain, "BTC", StringComparison.OrdinalIgnoreCase)) &&
@@ -144,11 +154,12 @@ public static class MakePayCheckoutPolicy
             });
         }
 
-        var chain = ResolveChainFromSellAsset(sellAsset, addresses);
-        return chain is null
+        chain = ResolveChainFromSellAsset(sellAsset, addresses);
+        var resolvedChain = chain;
+        return resolvedChain is null
             ? null
             : addresses.FirstOrDefault(address =>
-                string.Equals(address.Chain, chain, StringComparison.OrdinalIgnoreCase))?.Address;
+                string.Equals(address.Chain, resolvedChain, StringComparison.OrdinalIgnoreCase))?.Address;
     }
 
     private static string? ResolveChainFromSellAsset(

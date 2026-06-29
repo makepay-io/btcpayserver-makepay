@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
@@ -206,7 +207,7 @@ public class MakePayApiClient
             var item = new JObject
             {
                 ["chain"] = priority.Chain,
-                ["address"] = priority.Address
+                ["address"] = NormalizeAddressForMakePay(priority.Chain, priority.Address)
             };
             if (!string.IsNullOrWhiteSpace(priority.Asset))
             {
@@ -228,7 +229,7 @@ public class MakePayApiClient
             sources.Add(new JObject
             {
                 ["chain"] = sourceAddress.Chain,
-                ["address"] = sourceAddress.Address
+                ["address"] = NormalizeAddressForMakePay(sourceAddress.Chain, sourceAddress.Address)
             });
         }
 
@@ -451,10 +452,19 @@ public class MakePayApiClient
                 ? errorObj["error"]?.Value<string>()
                 : null;
             message ??= $"MakePay request failed with HTTP {(int)response.StatusCode}.";
-            throw new InvalidOperationException(message);
+            throw new MakePayApiException(response.StatusCode, message, json);
         }
 
         return json;
+    }
+
+    public static string NormalizeAddressForMakePay(string? chain, string address)
+    {
+        var value = address.Trim();
+        var normalizedChain = (chain ?? string.Empty).Trim().ToUpperInvariant();
+        return normalizedChain is "ETH" or "ARB" or "AVAX" or "BASE" or "BERA" or "BSC" or "GNO" or "MONAD" or "OP" or "POL" or "XLAYER"
+            ? value.ToLowerInvariant()
+            : value;
     }
 
     private static string? NullIfWhiteSpace(string? value)
@@ -471,3 +481,15 @@ public sealed record MakePayPaymentLinkResponse(
     string? SettlementAsset,
     string? WebhookSecret,
     string? WebhookSecretLast4);
+
+public sealed class MakePayApiException : InvalidOperationException
+{
+    public MakePayApiException(HttpStatusCode statusCode, string message, JToken payload) : base(message)
+    {
+        StatusCode = statusCode;
+        Payload = payload;
+    }
+
+    public HttpStatusCode StatusCode { get; }
+    public JToken Payload { get; }
+}
