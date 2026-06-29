@@ -388,6 +388,14 @@
                     .map(function (value) { return self.normalizeAssetKey(value); })
                     .filter(function (value) { return value.length > 0; });
             },
+            merchantRefundChains: function () {
+                var chains = Array.isArray(this.model.makePayMerchantRefundChains)
+                    ? this.model.makePayMerchantRefundChains
+                    : [];
+                return chains
+                    .map(function (chain) { return String(chain || '').trim().toUpperCase(); })
+                    .filter(function (chain) { return chain.length > 0; });
+            },
             assetGroups: function () {
                 var groups = new Map();
                 this.tokens.forEach(function (token) {
@@ -467,7 +475,8 @@
                     return false;
                 }
 
-                return this.refundAddressMode === 'payer_entered';
+                return this.refundAddressMode === 'payer_entered' ||
+                    (this.selectedToken.requiresPayerRefundAddress && !this.hasMerchantRefundAddress(this.selectedToken));
             },
             paymentRefundAddress: function () {
                 return this.shouldCollectRefundAddress
@@ -623,6 +632,10 @@
                 };
                 return names[token.chain] || token.network || token.chain || token.chainId || 'Network';
             },
+            hasMerchantRefundAddress: function (token) {
+                var chain = String(token && token.chain || '').trim().toUpperCase();
+                return chain.length > 0 && this.merchantRefundChains.indexOf(chain) >= 0;
+            },
             shortAssetLabel: function (value) {
                 var asset = String(value || '').trim();
                 if (this.selectedToken && this.selectedToken.ticker && (
@@ -742,7 +755,7 @@
                     return false;
                 }
 
-                if (!this.paymentRefundAddress) {
+                if (this.shouldCollectRefundAddress && !this.paymentRefundAddress) {
                     this.error = 'Enter a refund address for ' +
                         (this.selectedToken && this.selectedToken.chain ? this.selectedToken.chain : 'the selected network') +
                         ' before continuing.';

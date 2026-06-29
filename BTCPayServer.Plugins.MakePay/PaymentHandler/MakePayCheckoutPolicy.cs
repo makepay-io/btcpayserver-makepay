@@ -90,8 +90,18 @@ public static class MakePayCheckoutPolicy
             ReadString(payload, "sellAsset"));
         if (string.IsNullOrWhiteSpace(address))
         {
-            payload.Remove("refundAddress");
-            payload.Remove("sourceAddress");
+            var payerAddress = ReadString(payload, "refundAddress") ?? ReadString(payload, "sourceAddress");
+            if (!string.IsNullOrWhiteSpace(payerAddress))
+            {
+                payload["refundAddress"] = payerAddress;
+                payload["sourceAddress"] = payerAddress;
+            }
+            else
+            {
+                payload.Remove("refundAddress");
+                payload.Remove("sourceAddress");
+            }
+
             return payload;
         }
 

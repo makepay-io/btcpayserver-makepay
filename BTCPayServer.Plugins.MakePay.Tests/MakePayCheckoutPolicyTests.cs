@@ -67,7 +67,7 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
-    public void MerchantWalletModeRemovesClientAddressesWhenNoMerchantAddressMatchesAsset()
+    public void MerchantWalletModeKeepsPayerFallbackWhenNoMerchantAddressMatchesAsset()
     {
         var config = new MakePayPaymentMethodConfig();
         var prompt = new MakePayPromptDetails
@@ -85,8 +85,8 @@ public class MakePayCheckoutPolicyTests
 
         var result = (JObject)MakePayCheckoutPolicy.ApplyRefundAddressPolicy(config, prompt, payload);
 
-        Assert.Null(result["refundAddress"]);
-        Assert.Null(result["sourceAddress"]);
+        Assert.Equal("0x2222222222222222222222222222222222222222", result["refundAddress"]?.Value<string>());
+        Assert.Equal("0x2222222222222222222222222222222222222222", result["sourceAddress"]?.Value<string>());
     }
 
     [Fact]
