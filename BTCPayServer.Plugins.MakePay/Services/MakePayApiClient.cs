@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
@@ -206,7 +207,7 @@ public class MakePayApiClient
             var item = new JObject
             {
                 ["chain"] = priority.Chain,
-                ["address"] = priority.Address
+                ["address"] = NormalizeAddressForMakePay(priority.Chain, priority.Address)
             };
             if (!string.IsNullOrWhiteSpace(priority.Asset))
             {
@@ -228,7 +229,7 @@ public class MakePayApiClient
             sources.Add(new JObject
             {
                 ["chain"] = sourceAddress.Chain,
-                ["address"] = sourceAddress.Address
+                ["address"] = NormalizeAddressForMakePay(sourceAddress.Chain, sourceAddress.Address)
             });
         }
 
@@ -249,6 +250,7 @@ public class MakePayApiClient
             ["failureUrl"] = invoiceCheckoutUrl,
             ["expirationTime"] = "72h",
             ["webhookUrl"] = webhookUrl,
+            ["checkoutPolicy"] = BuildAnonymousCheckoutPolicy(config),
             ["metadata"] = new JObject
             {
                 ["source"] = "btcpay-server-anonymous",
@@ -271,6 +273,23 @@ public class MakePayApiClient
         };
         var response = await Send(request, cancellationToken);
         return ParsePaymentLinkResponse(response, true);
+    }
+
+    private static JObject BuildAnonymousCheckoutPolicy(MakePayPaymentMethodConfig config)
+    {
+        var skipQuoteAcceptance = !config.DisplayQuoteApproval;
+        return new JObject
+        {
+            ["paymentFeePayer"] = config.NormalizedPaymentFeePayer(),
+            ["refundAddressMode"] = config.NormalizedRefundAddressMode(),
+            ["skipQuoteAcceptance"] = skipQuoteAcceptance,
+            ["reconciliation"] = new JObject
+            {
+                ["allowedVariancePercent"] = config.NormalizedAllowedPaymentVariancePercent(),
+                ["allowedVarianceFixedUsd"] = config.NormalizedAllowedPaymentVarianceFixedUsd(),
+                ["merchantSurchargePercent"] = config.NormalizedMerchantSurchargePercent()
+            }
+        };
     }
 
     public async Task<JObject?> GetCurrentSession(
@@ -425,7 +444,31 @@ public class MakePayApiClient
         request.Headers.UserAgent.ParseAdd("MakePayBTCPayServer/" + MakePayPlugin.PluginVersion);
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var json = string.IsNullOrWhiteSpace(body) ? new JObject() : JToken.Parse(body);
+        JToken json;
+        try
+        {
+            json = string.IsNullOrWhiteSpace(body) ? new JObject() : JToken.Parse(body);
+        }
+        catch (JsonReaderException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "MakePay returned a non-JSON response for {Method} {Url} with HTTP {StatusCode}.",
+                request.Method.Method,
+                request.RequestUri,
+                (int)response.StatusCode);
+
+            json = new JObject
+            {
+                ["error"] = "MakePay checkout is temporarily unavailable. Please retry in a few seconds.",
+                ["retryable"] = true
+            };
+
+            throw new MakePayApiException(
+                response.StatusCode,
+                json["error"]?.Value<string>() ?? "MakePay checkout is temporarily unavailable.",
+                json);
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -433,10 +476,19 @@ public class MakePayApiClient
                 ? errorObj["error"]?.Value<string>()
                 : null;
             message ??= $"MakePay request failed with HTTP {(int)response.StatusCode}.";
-            throw new InvalidOperationException(message);
+            throw new MakePayApiException(response.StatusCode, message, json);
         }
 
         return json;
+    }
+
+    public static string NormalizeAddressForMakePay(string? chain, string address)
+    {
+        var value = address.Trim();
+        var normalizedChain = (chain ?? string.Empty).Trim().ToUpperInvariant();
+        return normalizedChain is "ETH" or "ARB" or "AVAX" or "BASE" or "BERA" or "BSC" or "GNO" or "MONAD" or "OP" or "POL" or "XLAYER"
+            ? value.ToLowerInvariant()
+            : value;
     }
 
     private static string? NullIfWhiteSpace(string? value)
@@ -453,3 +505,15 @@ public sealed record MakePayPaymentLinkResponse(
     string? SettlementAsset,
     string? WebhookSecret,
     string? WebhookSecretLast4);
+
+public sealed class MakePayApiException : InvalidOperationException
+{
+    public MakePayApiException(HttpStatusCode statusCode, string message, JToken payload) : base(message)
+    {
+        StatusCode = statusCode;
+        Payload = payload;
+    }
+
+    public HttpStatusCode StatusCode { get; }
+    public JToken Payload { get; }
+}

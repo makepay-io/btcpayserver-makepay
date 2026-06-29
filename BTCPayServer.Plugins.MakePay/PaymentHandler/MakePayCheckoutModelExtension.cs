@@ -5,6 +5,7 @@ using BTCPayServer.Payments;
 using BTCPayServer.Plugins.MakePay.Services;
 using BTCPayServer.Services.Invoices;
 using Newtonsoft.Json.Linq;
+using System.Linq;
 
 namespace BTCPayServer.Plugins.MakePay.PaymentHandler;
 
@@ -57,6 +58,12 @@ public class MakePayCheckoutModelExtension : ICheckoutModelExtension
             JToken.FromObject(config.DisplayQuoteApproval);
         context.Model.AdditionalData["makePayRefundAddressMode"] =
             JToken.FromObject(refundAddressMode);
+        context.Model.AdditionalData["makePayMerchantRefundChains"] =
+            JToken.FromObject(config.GetChainAddresses()
+                .Where(address => !string.IsNullOrWhiteSpace(address.Address))
+                .Select(address => address.Chain)
+                .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                .ToArray());
         context.Model.AdditionalData["makePayAllowedAssetIdentifiers"] =
             JToken.FromObject(config.AllowedAssetIdentifiers?.Trim() ?? string.Empty);
         context.Model.Address = $"{promptDetails.BtcAmount:0.########} BTC";

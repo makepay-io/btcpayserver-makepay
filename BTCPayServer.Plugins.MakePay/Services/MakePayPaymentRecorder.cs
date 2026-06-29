@@ -65,18 +65,36 @@ public class MakePayPaymentRecorder
         }
 
         var settlementAmount = session["settlementAmount"] as JObject;
+        var transactionIds = TransactionIds(session).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var paymentData = new MakePayPaymentData
         {
             PaymentLinkUid = promptDetails.PaymentLinkUid,
             SessionId = sessionId,
             Status = status ?? "complete",
             SellAsset = Text(session["selectedSellAsset"]) ?? Text(session["sellAsset"]),
+            BuyAsset = Text(session["selectedBuyAsset"]) ?? Text(session["buyAsset"]) ?? Text(session.SelectToken("settlement.asset")),
             RequiredSellAmount = Text(session["requiredSellAmount"]),
             SettlementAmount =
                 Text(settlementAmount?["amount"]) ??
                 Text(session.SelectToken("settlement.amount")) ??
                 promptDetails.BtcAmount.ToString("0.########"),
             SettlementClassification = Text(settlementAmount?["classification"]),
+            DepositNetwork =
+                Text(session.SelectToken("deposit.network")) ??
+                Text(session.SelectToken("deposit.chain")) ??
+                Text(session.SelectToken("deposit.chainCode")) ??
+                Text(session.SelectToken("whatToSend.network")) ??
+                Text(session.SelectToken("whatToSend.chain")),
+            DepositAddress =
+                Text(session.SelectToken("deposit.address")) ??
+                Text(session.SelectToken("deposit.depositAddress")) ??
+                Text(session.SelectToken("whatToSend.address")),
+            PaymentRequest =
+                Text(session.SelectToken("cashApp.paymentRequest")) ??
+                Text(session.SelectToken("deposit.uri")) ??
+                Text(session.SelectToken("deposit.qr.addressOnly")) ??
+                Text(session.SelectToken("deposit.qr.withAmount")),
+            TransactionIds = string.Join(", ", transactionIds),
             DeliveryId = deliveryId
         };
 
@@ -99,6 +117,20 @@ public class MakePayPaymentRecorder
         if (!string.IsNullOrWhiteSpace(deliveryId))
         {
             searchTerms.Add(deliveryId);
+        }
+        foreach (var term in new[]
+                 {
+                     paymentData.DepositAddress,
+                     paymentData.PaymentRequest,
+                     paymentData.DepositNetwork,
+                     paymentData.SellAsset,
+                     paymentData.BuyAsset
+                 }.Concat(transactionIds))
+        {
+            if (!string.IsNullOrWhiteSpace(term))
+            {
+                searchTerms.Add(term);
+            }
         }
 
         var addedPayment = await _paymentService.AddPayment(payment, searchTerms);
@@ -125,5 +157,45 @@ public class MakePayPaymentRecorder
     {
         var value = token?.Value<string>()?.Trim();
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static IEnumerable<string> TransactionIds(JToken session)
+    {
+        var paths = new[]
+        {
+            "txId",
+            "txid",
+            "transactionId",
+            "transactionHash",
+            "deposit.txId",
+            "deposit.txid",
+            "deposit.transactionId",
+            "deposit.transactionHash",
+            "payment.txId",
+            "payment.txid",
+            "payment.transactionId",
+            "payment.transactionHash"
+        };
+
+        foreach (var path in paths)
+        {
+            if (Text(session.SelectToken(path)) is { } value)
+            {
+                yield return value;
+            }
+        }
+
+        foreach (var token in session.SelectTokens("transactions[*].txId")
+                     .Concat(session.SelectTokens("transactions[*].txid"))
+                     .Concat(session.SelectTokens("transactions[*].hash"))
+                     .Concat(session.SelectTokens("deposits[*].txId"))
+                     .Concat(session.SelectTokens("deposits[*].txid"))
+                     .Concat(session.SelectTokens("deposits[*].hash")))
+        {
+            if (Text(token) is { } value)
+            {
+                yield return value;
+            }
+        }
     }
 }

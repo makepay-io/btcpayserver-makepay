@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -10,6 +12,7 @@ using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
+using BTCPayServer.Plugins.MakePay.Models;
 using BTCPayServer.Plugins.MakePay.PaymentHandler;
 using BTCPayServer.Plugins.MakePay.Services;
 using BTCPayServer.Services.Invoices;
@@ -27,17 +30,20 @@ namespace BTCPayServer.Plugins.MakePay.Controllers;
 public class MakePayController : Controller
 {
     private readonly StoreRepository _storeRepository;
+    private readonly InvoiceRepository _invoiceRepository;
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly MakePayApiClient _makePayApiClient;
     private readonly MakePaySecretProtector _secretProtector;
 
     public MakePayController(
         StoreRepository storeRepository,
+        InvoiceRepository invoiceRepository,
         PaymentMethodHandlerDictionary handlers,
         MakePayApiClient makePayApiClient,
         MakePaySecretProtector secretProtector)
     {
         _storeRepository = storeRepository;
+        _invoiceRepository = invoiceRepository;
         _handlers = handlers;
         _makePayApiClient = makePayApiClient;
         _secretProtector = secretProtector;
@@ -46,16 +52,47 @@ public class MakePayController : Controller
     [HttpGet("")]
     public async Task<IActionResult> Configure(string storeId)
     {
+        if (await _storeRepository.FindStore(storeId) is null)
+        {
+            return NotFound();
+        }
+
+        return RedirectToAction(nameof(Payments), new { storeId });
+    }
+
+    [HttpGet("general")]
+    public Task<IActionResult> General(string storeId)
+    {
+        return Settings(storeId, "general", "MakePay Settings");
+    }
+
+    [HttpGet("currencies")]
+    public Task<IActionResult> AllowedCurrencies(string storeId)
+    {
+        return Settings(storeId, "currencies", "MakePay Currencies");
+    }
+
+    [HttpGet("settlement")]
+    public Task<IActionResult> Settlement(string storeId)
+    {
+        return Settings(storeId, "settlement", "MakePay Settlement");
+    }
+
+    private async Task<IActionResult> Settings(string storeId, string section, string title)
+    {
         var store = await _storeRepository.FindStore(storeId);
         if (store is null)
         {
             return NotFound();
         }
 
-        return View(GetConfig(store));
+        ViewData["MakePaySection"] = section;
+        ViewData["MakePayActivePage"] = "MakePay" + char.ToUpperInvariant(section[0]) + section[1..];
+        ViewData["MakePayTitle"] = title;
+        return View("Configure", GetConfig(store));
     }
 
-    [HttpGet("currencies")]
+    [HttpGet("api/currencies")]
     public async Task<IActionResult> Currencies(string storeId)
     {
         var store = await _storeRepository.FindStore(storeId);
@@ -79,10 +116,47 @@ public class MakePayController : Controller
     }
 
     [HttpPost("")]
-    public async Task<IActionResult> Configure(
+    public Task<IActionResult> Configure(
         string storeId,
         MakePayPaymentMethodConfig posted,
         string command)
+    {
+        return SaveGeneral(storeId, posted, command);
+    }
+
+    [HttpPost("general")]
+    public Task<IActionResult> SaveGeneral(
+        string storeId,
+        MakePayPaymentMethodConfig posted,
+        string command)
+    {
+        return SaveSettings(storeId, posted, command, "general", nameof(General));
+    }
+
+    [HttpPost("currencies")]
+    public Task<IActionResult> SaveAllowedCurrencies(
+        string storeId,
+        MakePayPaymentMethodConfig posted,
+        string command)
+    {
+        return SaveSettings(storeId, posted, command, "currencies", nameof(AllowedCurrencies));
+    }
+
+    [HttpPost("settlement")]
+    public Task<IActionResult> SaveSettlement(
+        string storeId,
+        MakePayPaymentMethodConfig posted,
+        string command)
+    {
+        return SaveSettings(storeId, posted, command, "settlement", nameof(Settlement));
+    }
+
+    private async Task<IActionResult> SaveSettings(
+        string storeId,
+        MakePayPaymentMethodConfig posted,
+        string command,
+        string section,
+        string actionName)
     {
         var store = await _storeRepository.FindStore(storeId);
         if (store is null)
@@ -90,7 +164,7 @@ public class MakePayController : Controller
             return NotFound();
         }
 
-        var config = MergePostedConfig(GetConfig(store), posted);
+        var config = MergePostedConfig(GetConfig(store), posted, section);
 
         switch ((command ?? string.Empty).ToLowerInvariant())
         {
@@ -107,20 +181,172 @@ public class MakePayController : Controller
                     config.LastError = SafeError(ex.Message);
                     await SaveConfig(store, config.ClearOAuthState());
                     SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay connection failed. Check the MakePay settings and try again.");
-                    return RedirectToAction(nameof(Configure), new { storeId });
+                    return RedirectToAction(nameof(General), new { storeId });
                 }
             case "disconnect":
                 config.ClearConnection();
                 await SaveConfig(store, config);
                 SetStatus(StatusMessageModel.StatusSeverity.Success, "MakePay disconnected.");
-                return RedirectToAction(nameof(Configure), new { storeId });
+                return RedirectToAction(nameof(General), new { storeId });
             case "save":
                 await SaveConfig(store, config);
                 SetStatus(StatusMessageModel.StatusSeverity.Success, "MakePay settings saved.");
-                return RedirectToAction(nameof(Configure), new { storeId });
+                return RedirectToAction(actionName, new { storeId });
             default:
-                return View(config);
+                return await Settings(storeId, section, ViewTitle(section));
         }
+    }
+
+    [HttpGet("payments")]
+    public async Task<IActionResult> Payments(
+        string storeId,
+        [FromQuery] string? searchTerm,
+        [FromQuery] string? status,
+        [FromQuery] string? asset,
+        [FromQuery] string? network,
+        [FromQuery] string? timeRange,
+        [FromQuery] string? startDate,
+        [FromQuery] string? endDate,
+        [FromQuery] int skip = 0)
+    {
+        var store = await _storeRepository.FindStore(storeId);
+        if (store is null)
+        {
+            return NotFound();
+        }
+
+        const int take = 50;
+        const int invoiceScanLimit = 1000;
+        skip = Math.Max(0, skip);
+        var query = new InvoiceQuery
+        {
+            StoreId = [store.Id],
+            IncludeArchived = true,
+            Take = invoiceScanLimit
+        };
+        var invoices = await _invoiceRepository.GetInvoices(query);
+        var makePayPayments = invoices
+            .SelectMany(invoice => invoice.GetPayments(false)
+                .Where(payment => payment.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId)
+                .Select(payment => ToPaymentListItem(invoice, payment)))
+            .ToList();
+        makePayPayments.AddRange(await LoadOpenSessionItems(store, invoices, makePayPayments));
+        makePayPayments = makePayPayments
+            .OrderByDescending(payment => payment.Created)
+            .ToList();
+        var statusOptions = makePayPayments
+            .Select(payment => payment.Status.ToString())
+            .Concat(makePayPayments.Select(payment => payment.MakePayStatus))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var assetOptions = makePayPayments
+            .SelectMany(payment => new[] { payment.SellAsset, payment.BuyAsset, payment.Currency })
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var networkOptions = makePayPayments
+            .Select(payment => payment.DepositNetwork)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+
+        var filteredPayments = FilterPayments(
+                makePayPayments,
+                searchTerm,
+                status,
+                asset,
+                network,
+                timeRange,
+                startDate,
+                endDate)
+            .ToList();
+        var items = filteredPayments
+            .Skip(skip)
+            .Take(take)
+            .ToList();
+
+        var model = new MakePayPaymentsViewModel
+        {
+            StoreId = store.Id,
+            SearchTerm = NormalizeOptional(searchTerm),
+            StatusFilter = NormalizeOptional(status),
+            AssetFilter = NormalizeOptional(asset),
+            NetworkFilter = NormalizeOptional(network),
+            TimeRange = NormalizeOptional(timeRange),
+            StartDate = NormalizeOptional(startDate),
+            EndDate = NormalizeOptional(endDate),
+            Skip = skip,
+            Take = take,
+            HasMore = filteredPayments.Count > skip + take,
+            Payments = items,
+            StatusOptions = statusOptions,
+            AssetOptions = assetOptions,
+            NetworkOptions = networkOptions
+        };
+
+        return View(model);
+    }
+
+    [HttpGet("payments/{paymentId}")]
+    public async Task<IActionResult> PaymentDetails(string storeId, string paymentId)
+    {
+        var store = await _storeRepository.FindStore(storeId);
+        if (store is null || string.IsNullOrWhiteSpace(paymentId))
+        {
+            return NotFound();
+        }
+
+        var invoices = await _invoiceRepository.GetInvoices(new InvoiceQuery
+        {
+            StoreId = [store.Id],
+            IncludeArchived = true,
+            TextSearch = paymentId,
+            Take = 100
+        });
+        var payment = invoices
+            .SelectMany(invoice => invoice.GetPayments(false)
+                .Where(candidate =>
+                    candidate.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId &&
+                    string.Equals(candidate.Id, paymentId, StringComparison.Ordinal))
+                .Select(candidate => ToPaymentListItem(invoice, candidate)))
+            .FirstOrDefault();
+
+        if (payment is null)
+        {
+            invoices = await _invoiceRepository.GetInvoices(new InvoiceQuery
+            {
+                StoreId = [store.Id],
+                IncludeArchived = true,
+                Take = 500
+            });
+            payment = invoices
+                .SelectMany(invoice => invoice.GetPayments(false)
+                    .Where(candidate =>
+                        candidate.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId &&
+                        string.Equals(candidate.Id, paymentId, StringComparison.Ordinal))
+                    .Select(candidate => ToPaymentListItem(invoice, candidate)))
+                .FirstOrDefault();
+        }
+
+        if (payment is null)
+        {
+            return NotFound();
+        }
+
+        var model = new MakePayPaymentDetailsViewModel
+        {
+            StoreId = store.Id,
+            Payment = payment,
+            ExplorerLinks = BuildExplorerLinks(payment)
+        };
+
+        return View(model);
     }
 
     [HttpGet("oauth/callback")]
@@ -144,7 +370,7 @@ public class MakePayController : Controller
             config.LastError = SafeError(error);
             await SaveConfig(store, config.ClearOAuthState());
             SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth failed. Please try connecting again.");
-            return RedirectToAction(nameof(Configure), new { storeId });
+            return RedirectToAction(nameof(General), new { storeId });
         }
 
         if (string.IsNullOrWhiteSpace(code) ||
@@ -155,7 +381,7 @@ public class MakePayController : Controller
             config.LastError = "Invalid OAuth state.";
             await SaveConfig(store, config.ClearOAuthState());
             SetStatus(StatusMessageModel.StatusSeverity.Error, "Invalid MakePay OAuth state. Please try connecting again.");
-            return RedirectToAction(nameof(Configure), new { storeId });
+            return RedirectToAction(nameof(General), new { storeId });
         }
 
         try
@@ -187,7 +413,7 @@ public class MakePayController : Controller
             SetStatus(StatusMessageModel.StatusSeverity.Error, "MakePay OAuth exchange failed. Please try connecting again.");
         }
 
-        return RedirectToAction(nameof(Configure), new { storeId });
+        return RedirectToAction(nameof(General), new { storeId });
     }
 
     private async Task<IActionResult> Connect(StoreData store, MakePayPaymentMethodConfig config)
@@ -272,19 +498,420 @@ public class MakePayController : Controller
 
     private static MakePayPaymentMethodConfig MergePostedConfig(
         MakePayPaymentMethodConfig existing,
-        MakePayPaymentMethodConfig posted)
+        MakePayPaymentMethodConfig posted,
+        string section)
     {
-        existing.Enabled = posted.Enabled;
-        existing.RequestReceiptEmailFromCustomer = posted.RequestReceiptEmailFromCustomer;
-        existing.DefaultReceiptEmail = NormalizeOptional(posted.DefaultReceiptEmail);
-        existing.DisplayQuoteApproval = posted.DisplayQuoteApproval;
-        existing.RefundAddressMode = posted.NormalizedRefundAddressMode();
-        existing.AllowedAssetIdentifiers = NormalizeAllowedAssetIdentifiers(posted.AllowedAssetIdentifiers);
-        existing.SiteUrl = NormalizeAbsoluteUrl(posted.SiteUrl) ?? existing.SiteUrl;
-        existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
-        existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
-        existing.ChainAddressesJson = NormalizeChainAddressesJson(posted.ChainAddressesJson);
+        if (string.Equals(section, "general", StringComparison.OrdinalIgnoreCase))
+        {
+            existing.Enabled = posted.Enabled;
+            existing.RequestReceiptEmailFromCustomer = posted.RequestReceiptEmailFromCustomer;
+            existing.DefaultReceiptEmail = NormalizeOptional(posted.DefaultReceiptEmail);
+            existing.DisplayQuoteApproval = posted.DisplayQuoteApproval;
+            existing.RefundAddressMode = posted.NormalizedRefundAddressMode();
+            existing.PaymentFeePayer = posted.NormalizedPaymentFeePayer();
+            existing.AllowedPaymentVariancePercent = posted.NormalizedAllowedPaymentVariancePercent();
+            existing.AllowedPaymentVarianceFixedUsd = posted.NormalizedAllowedPaymentVarianceFixedUsd();
+            existing.MerchantSurchargePercent = posted.NormalizedMerchantSurchargePercent();
+            existing.SettlementMode = posted.NormalizedSettlementMode();
+            existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
+            existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
+            existing.SiteUrl = NormalizeAbsoluteUrl(posted.SiteUrl) ?? existing.SiteUrl;
+        }
+        else if (string.Equals(section, "currencies", StringComparison.OrdinalIgnoreCase))
+        {
+            existing.AllowedAssetIdentifiers = NormalizeAllowedAssetIdentifiers(posted.AllowedAssetIdentifiers);
+        }
+        else if (string.Equals(section, "settlement", StringComparison.OrdinalIgnoreCase))
+        {
+            existing.ChainAddressesJson = NormalizeChainAddressesJson(posted.ChainAddressesJson);
+        }
+
         return existing;
+    }
+
+    private MakePayPaymentListItem ToPaymentListItem(InvoiceEntity invoice, PaymentEntity payment)
+    {
+        MakePayPaymentData details;
+        if (_handlers.TryGet(MakePayPlugin.MakePayPaymentMethodId) is MakePayPaymentMethodHandler handler)
+        {
+            details = handler.ParsePaymentDetails(payment.Details) as MakePayPaymentData ?? new MakePayPaymentData();
+        }
+        else
+        {
+            details = new MakePayPaymentData();
+        }
+
+        return new MakePayPaymentListItem
+        {
+            PaymentId = payment.Id,
+            InvoiceId = invoice.Id,
+            OrderId = invoice.Metadata.OrderId,
+            Created = payment.ReceivedTime,
+            Status = payment.Status,
+            Amount = payment.Value,
+            Currency = payment.Currency,
+            PaymentLinkUid = details.PaymentLinkUid,
+            SessionId = details.SessionId,
+            MakePayStatus = details.Status,
+            SellAsset = details.SellAsset,
+            BuyAsset = details.BuyAsset,
+            RequiredSellAmount = details.RequiredSellAmount,
+            SettlementAmount = details.SettlementAmount,
+            SettlementClassification = details.SettlementClassification,
+            DepositNetwork = details.DepositNetwork,
+            DepositAddress = details.DepositAddress,
+            PaymentRequest = details.PaymentRequest,
+            TransactionIds = details.TransactionIds,
+            DeliveryId = details.DeliveryId
+        };
+    }
+
+    private async Task<List<MakePayPaymentListItem>> LoadOpenSessionItems(
+        StoreData store,
+        IReadOnlyList<InvoiceEntity> invoices,
+        IReadOnlyList<MakePayPaymentListItem> recordedPayments)
+    {
+        if (_handlers.TryGet(MakePayPlugin.MakePayPaymentMethodId) is not MakePayPaymentMethodHandler handler)
+        {
+            return [];
+        }
+
+        var config = GetConfig(store);
+        var recordedLinks = recordedPayments
+            .Select(payment => payment.PaymentLinkUid)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.Ordinal);
+        var recordedSessions = recordedPayments
+            .Select(payment => payment.SessionId)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.Ordinal);
+        var items = new List<MakePayPaymentListItem>();
+
+        foreach (var invoice in invoices.Take(200))
+        {
+            if (invoice.GetPayments(false).Any(payment => payment.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId))
+            {
+                continue;
+            }
+
+            var prompt = invoice.GetPaymentPrompt(MakePayPlugin.MakePayPaymentMethodId);
+            if (prompt is null)
+            {
+                continue;
+            }
+
+            var details = (MakePayPromptDetails)handler.ParsePaymentPromptDetails(prompt.Details);
+            if (string.IsNullOrWhiteSpace(details.PaymentLinkUid) ||
+                recordedLinks.Contains(details.PaymentLinkUid))
+            {
+                continue;
+            }
+
+            try
+            {
+                var sessionConfig = config;
+                if (!string.IsNullOrWhiteSpace(details.CheckoutBaseUrl))
+                {
+                    sessionConfig.CheckoutBaseUrl = details.CheckoutBaseUrl;
+                }
+
+                var current = await _makePayApiClient.SendPublic(
+                    sessionConfig,
+                    HttpMethod.Get,
+                    "/api/public/payment-links/" +
+                    Uri.EscapeDataString(details.PaymentLinkUid) +
+                    "/current-session");
+                var session = current["session"] as JObject;
+                var sessionId = Text(session?["sessionId"]);
+                if (session is null ||
+                    string.IsNullOrWhiteSpace(sessionId) ||
+                    recordedSessions.Contains(sessionId))
+                {
+                    continue;
+                }
+
+                var whatToSend = session["whatToSend"] as JObject;
+                var deposit = session["deposit"] as JObject;
+                var cashApp = session["cashApp"] as JObject;
+                var selectedAsset = Text(session["selectedSellAsset"]);
+                var requiredAmount = Text(whatToSend?["amount"]);
+                var requiredAsset = Text(whatToSend?["asset"]) ?? selectedAsset;
+                var depositAddress = Text(deposit?["address"]);
+                var paymentRequest = Text(cashApp?["paymentRequest"]);
+                var settlementAmount = Text(session.SelectToken("settlementAmount.targetAmount"));
+                var settlementAsset = Text(session.SelectToken("settlementAmount.targetAsset"));
+
+                items.Add(new MakePayPaymentListItem
+                {
+                    PaymentId = "session:" + sessionId,
+                    InvoiceId = invoice.Id,
+                    OrderId = invoice.Metadata.OrderId,
+                    Created = details.CreatedAt,
+                    Status = PaymentStatus.Processing,
+                    Amount = details.BtcAmount,
+                    Currency = "BTC",
+                    PaymentLinkUid = details.PaymentLinkUid,
+                    SessionId = sessionId,
+                    MakePayStatus = Text(session["status"]) ?? "pending",
+                    SellAsset = selectedAsset,
+                    BuyAsset = settlementAsset ?? details.SettlementAsset,
+                    RequiredSellAmount = !string.IsNullOrWhiteSpace(requiredAmount)
+                        ? requiredAmount + (!string.IsNullOrWhiteSpace(requiredAsset) ? " " + ShortAsset(requiredAsset) : string.Empty)
+                        : null,
+                    SettlementAmount = settlementAmount,
+                    SettlementClassification = Text(session.SelectToken("settlementAmount.classification")),
+                    DepositNetwork = ChainFromAsset(selectedAsset),
+                    DepositAddress = depositAddress,
+                    PaymentRequest = paymentRequest,
+                    IsSessionOnly = true
+                });
+            }
+            catch
+            {
+                // The payments page should remain usable if MakePay cannot return a live session.
+            }
+        }
+
+        return items;
+    }
+
+    private static IEnumerable<MakePayPaymentListItem> FilterPayments(
+        IEnumerable<MakePayPaymentListItem> payments,
+        string? searchTerm,
+        string? status,
+        string? asset,
+        string? network,
+        string? timeRange,
+        string? startDate,
+        string? endDate)
+    {
+        var filtered = payments;
+        var search = NormalizeOptional(searchTerm);
+        var normalizedStatus = NormalizeOptional(status);
+        var normalizedAsset = NormalizeOptional(asset);
+        var normalizedNetwork = NormalizeOptional(network);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            filtered = filtered.Where(payment => PaymentMatchesSearch(payment, search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedStatus))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.Status.ToString(), normalizedStatus, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.MakePayStatus, normalizedStatus, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedAsset))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.SellAsset, normalizedAsset, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.BuyAsset, normalizedAsset, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payment.Currency, normalizedAsset, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedNetwork))
+        {
+            filtered = filtered.Where(payment =>
+                string.Equals(payment.DepositNetwork, normalizedNetwork, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var from = NormalizeOptional(timeRange) switch
+        {
+            "24h" => now.AddHours(-24),
+            "3d" => now.AddDays(-3),
+            "7d" => now.AddDays(-7),
+            "30d" => now.AddDays(-30),
+            "custom" => ParseDateFilter(startDate),
+            _ => null
+        };
+        var to = NormalizeOptional(timeRange) == "custom" ? ParseDateFilter(endDate) : null;
+
+        if (from is not null)
+        {
+            filtered = filtered.Where(payment => payment.Created >= from.Value);
+        }
+
+        if (to is not null)
+        {
+            filtered = filtered.Where(payment => payment.Created <= to.Value);
+        }
+
+        return filtered;
+    }
+
+    private static DateTimeOffset? ParseDateFilter(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var offset))
+        {
+            return offset.ToUniversalTime();
+        }
+
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var date)
+            ? new DateTimeOffset(date).ToUniversalTime()
+            : null;
+    }
+
+    private static bool PaymentMatchesSearch(MakePayPaymentListItem payment, string search)
+    {
+        return ContainsSearch(payment.InvoiceId, search) ||
+               ContainsSearch(payment.OrderId, search) ||
+               ContainsSearch(payment.PaymentId, search) ||
+               ContainsSearch(payment.SessionId, search) ||
+               ContainsSearch(payment.PaymentLinkUid, search) ||
+               ContainsSearch(payment.MakePayStatus, search) ||
+               ContainsSearch(payment.SellAsset, search) ||
+               ContainsSearch(payment.BuyAsset, search) ||
+               ContainsSearch(payment.DepositNetwork, search) ||
+               ContainsSearch(payment.DepositAddress, search) ||
+               ContainsSearch(payment.PaymentRequest, search) ||
+               ContainsSearch(payment.TransactionIds, search) ||
+               ContainsSearch(payment.DeliveryId, search);
+    }
+
+    private static bool ContainsSearch(string? value, string search)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               value.Contains(search, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? Text(JToken? token)
+    {
+        if (token is null || token.Type is JTokenType.Null or JTokenType.Undefined)
+        {
+            return null;
+        }
+
+        var value = token?.Type == JTokenType.String
+            ? token.Value<string>()
+            : token?.ToString(Formatting.None);
+        value = NormalizeOptional(value);
+        return string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : value;
+    }
+
+    private static string? ChainFromAsset(string? asset)
+    {
+        if (string.IsNullOrWhiteSpace(asset))
+        {
+            return null;
+        }
+
+        var value = asset.Trim();
+        return value.Contains('.', StringComparison.Ordinal)
+            ? value.Split('.', 2)[0].ToUpperInvariant()
+            : null;
+    }
+
+    private static string ShortAsset(string asset)
+    {
+        var value = asset.Trim();
+        if (value.Contains('.', StringComparison.Ordinal))
+        {
+            value = value.Split('.', 2)[1];
+        }
+
+        return value.Split('-', 2)[0].ToUpperInvariant();
+    }
+
+    private static List<MakePayExplorerLink> BuildExplorerLinks(MakePayPaymentListItem payment)
+    {
+        var chain = NormalizeExplorerChain(payment.DepositNetwork) ??
+                    NormalizeExplorerChain(payment.SellAsset) ??
+                    NormalizeExplorerChain(payment.BuyAsset);
+        if (chain is null || string.IsNullOrWhiteSpace(payment.TransactionIds))
+        {
+            return [];
+        }
+
+        return payment.TransactionIds
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(tx => new { TransactionId = tx, Url = ExplorerUrl(chain, tx) })
+            .Where(link => !string.IsNullOrWhiteSpace(link.Url))
+            .Select(link => new MakePayExplorerLink
+            {
+                Label = chain,
+                TransactionId = link.TransactionId,
+                Url = link.Url!
+            })
+            .ToList();
+    }
+
+    private static string? NormalizeExplorerChain(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var chain = value.Trim();
+        if (chain.Contains('.', StringComparison.Ordinal))
+        {
+            chain = chain.Split('.', 2)[0];
+        }
+
+        chain = chain.ToUpperInvariant();
+        return chain switch
+        {
+            "BITCOIN" => "BTC",
+            "ETHEREUM" or "ERC20" => "ETH",
+            "POLYGON" or "MATIC" => "POL",
+            "ARBITRUM" => "ARB",
+            "OPTIMISM" => "OP",
+            "AVALANCHE" => "AVAX",
+            "TRX" => "TRON",
+            "BINANCE" or "BSC" => "BNB",
+            _ => chain
+        };
+    }
+
+    private static string? ExplorerUrl(string chain, string tx)
+    {
+        if (string.IsNullOrWhiteSpace(tx) || tx == "0x")
+        {
+            return null;
+        }
+
+        var escaped = Uri.EscapeDataString(tx.Trim());
+        return chain switch
+        {
+            "BTC" => "https://mempool.space/tx/" + escaped,
+            "ETH" => "https://etherscan.io/tx/" + escaped,
+            "ARB" => "https://arbiscan.io/tx/" + escaped,
+            "BASE" => "https://basescan.org/tx/" + escaped,
+            "OP" => "https://optimistic.etherscan.io/tx/" + escaped,
+            "POL" => "https://polygonscan.com/tx/" + escaped,
+            "BNB" => "https://bscscan.com/tx/" + escaped,
+            "AVAX" => "https://snowtrace.io/tx/" + escaped,
+            "TRON" => "https://tronscan.org/#/transaction/" + escaped,
+            "SOL" => "https://solscan.io/tx/" + escaped,
+            "LTC" => "https://blockchair.com/litecoin/transaction/" + escaped,
+            "BCH" => "https://blockchair.com/bitcoin-cash/transaction/" + escaped,
+            "DOGE" => "https://blockchair.com/dogecoin/transaction/" + escaped,
+            "DASH" => "https://blockchair.com/dash/transaction/" + escaped,
+            "ZEC" => "https://blockchair.com/zcash/transaction/" + escaped,
+            "XRP" => "https://xrpscan.com/tx/" + escaped,
+            "TON" => "https://tonscan.org/tx/" + escaped,
+            _ => null
+        };
+    }
+
+    private static string ViewTitle(string section)
+    {
+        return section switch
+        {
+            "currencies" => "MakePay Currencies",
+            "settlement" => "MakePay Settlement",
+            _ => "MakePay General"
+        };
     }
 
     private string? CurrentUserEmail()

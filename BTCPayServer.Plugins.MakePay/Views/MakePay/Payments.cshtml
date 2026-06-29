@@ -1,0 +1,377 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.MakePay.Models
+@using BTCPayServer.Services
+@inject DisplayFormatter DisplayFormatter
+@model MakePayPaymentsViewModel
+@{
+    ViewData.SetActivePage("MakePayPayments", "MakePay", "MakePay Payments");
+}
+
+<div class="sticky-header-setup"></div>
+<div class="sticky-header d-sm-flex align-items-center justify-content-between">
+    <h2 class="mb-0 d-flex align-items-center gap-2">
+        <span>@ViewData["Title"]</span>
+        <button type="button"
+                class="btn btn-link p-0 text-secondary makepay-help-button"
+                data-makepay-help-toggle="makepay-payments-help"
+                aria-controls="makepay-payments-help"
+                aria-expanded="false"
+                title="About MakePay payments">
+            <vc:icon symbol="info" />
+        </button>
+    </h2>
+</div>
+
+<partial name="_StatusMessage" />
+
+<div id="makepay-payments-help" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="makepay-payments-help" hidden>
+    <div class="d-flex gap-3">
+        <div class="flex-fill">
+            <p class="mb-2">MakePay payments show BTCPay invoice payments recorded through the MakePay payment method, plus open MakePay checkout sessions that already generated a deposit address.</p>
+            <p class="mb-2">Use this page to inspect the MakePay session, selected asset, deposit address, transaction id, BTCPay payment status, and settlement amount.</p>
+            <p class="mb-0">Search matches invoice ids, order ids, MakePay sessions, payment links, deposit addresses, payment requests, transaction ids, assets, networks, and statuses.</p>
+        </div>
+        <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="makepay-payments-help" aria-label="Close">
+            <vc:icon symbol="close" />
+        </button>
+    </div>
+</div>
+
+<form method="get" class="makepay-filter-bar d-flex flex-wrap align-items-end gap-3 mb-4">
+    <div class="flex-grow-1 makepay-filter-search">
+        <label class="form-label" for="makepay-search">Search</label>
+        <input id="makepay-search" name="searchTerm" value="@Model.SearchTerm" class="form-control" type="search" placeholder="Invoice, session, address, tx" />
+    </div>
+    <div>
+        <label class="form-label" for="makepay-status-filter">Status</label>
+        <select id="makepay-status-filter" name="status" class="form-select">
+            <option value="">All Status</option>
+            @foreach (var option in Model.StatusOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.StatusFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-asset-filter">Asset</label>
+        <select id="makepay-asset-filter" name="asset" class="form-select">
+            <option value="">All Assets</option>
+            @foreach (var option in Model.AssetOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.AssetFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-network-filter">Network</label>
+        <select id="makepay-network-filter" name="network" class="form-select">
+            <option value="">All Networks</option>
+            @foreach (var option in Model.NetworkOptions)
+            {
+                <option value="@option" selected="@(Selected(option, Model.NetworkFilter))">@option</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label" for="makepay-time-filter">Time</label>
+        <select id="makepay-time-filter" name="timeRange" class="form-select" data-makepay-time-filter>
+            <option value="">All Time</option>
+            <option value="24h" selected="@(Selected("24h", Model.TimeRange))">Last 24 hours</option>
+            <option value="3d" selected="@(Selected("3d", Model.TimeRange))">Last 3 days</option>
+            <option value="7d" selected="@(Selected("7d", Model.TimeRange))">Last 7 days</option>
+            <option value="30d" selected="@(Selected("30d", Model.TimeRange))">Last 30 days</option>
+            <option value="custom" selected="@(Selected("custom", Model.TimeRange))">Custom range</option>
+        </select>
+    </div>
+    <div class="makepay-custom-range" data-makepay-custom-range>
+        <label class="form-label" for="makepay-start-date">Start</label>
+        <input id="makepay-start-date" name="startDate" value="@Model.StartDate" class="form-control" type="datetime-local" />
+    </div>
+    <div class="makepay-custom-range" data-makepay-custom-range>
+        <label class="form-label" for="makepay-end-date">End</label>
+        <input id="makepay-end-date" name="endDate" value="@Model.EndDate" class="form-control" type="datetime-local" />
+    </div>
+    <input type="hidden" name="skip" value="0" />
+    <button type="submit" class="btn btn-primary">Search</button>
+    @if (HasFilters())
+    {
+        <a asp-action="Payments" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Clear</a>
+    }
+</form>
+
+<div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+        <tr>
+            <th class="text-nowrap">Date</th>
+            <th>Invoice</th>
+            <th>Asset</th>
+            <th>Deposit</th>
+            <th>Transaction</th>
+            <th>Status</th>
+            <th class="text-end">Amount</th>
+        </tr>
+        </thead>
+        <tbody>
+        @if (!Model.Payments.Any())
+        {
+            <tr>
+                <td colspan="7" class="text-muted py-4">
+                    No MakePay payments found.
+                </td>
+            </tr>
+        }
+        @foreach (var payment in Model.Payments)
+        {
+            <tr>
+                <td class="text-nowrap">
+                    @payment.Created.ToBrowserDate()
+                </td>
+                <td>
+                    <div>
+                        <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@payment.InvoiceId">
+                            <vc:truncate-center text="@payment.InvoiceId" classes="truncate-center-id" />
+                        </a>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(payment.OrderId))
+                    {
+                        <div class="small text-muted text-break">@payment.OrderId</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(payment.PaymentLinkUid))
+                    {
+                        <div class="small text-muted">
+                            Link <vc:truncate-center text="@payment.PaymentLinkUid" classes="truncate-center-id" />
+                        </div>
+                    }
+                </td>
+                <td>
+                    <div>@FormatAsset(payment.SellAsset)</div>
+                    @if (!string.IsNullOrWhiteSpace(payment.RequiredSellAmount))
+                    {
+                        <div class="small text-muted text-nowrap">@payment.RequiredSellAmount</div>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(payment.DepositAddress))
+                    {
+                        <a href="@DepositExplorerUrl(payment.DepositAddress)" target="_blank" rel="noreferrer noopener">
+                            <vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" />
+                        </a>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(payment.PaymentRequest))
+                    {
+                        <vc:truncate-center text="@payment.PaymentRequest" classes="truncate-center-id" />
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(payment.TransactionIds))
+                    {
+                        <vc:truncate-center text="@payment.TransactionIds" classes="truncate-center-id" />
+                    }
+                    else if (!string.IsNullOrWhiteSpace(payment.DeliveryId))
+                    {
+                        <span class="small text-muted">Delivery</span>
+                        <vc:truncate-center text="@payment.DeliveryId" classes="truncate-center-id" />
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                </td>
+                <td>
+                    <span class="badge rounded-pill @StatusClass(payment.Status)">@payment.Status</span>
+                    @if (payment.IsSessionOnly)
+                    {
+                        <div class="small text-muted mt-1">Awaiting funds</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(payment.MakePayStatus))
+                    {
+                        <div class="small text-muted mt-1">MakePay: @payment.MakePayStatus</div>
+                    }
+                </td>
+                <td class="text-end text-nowrap">
+                    <span data-sensitive>@DisplayFormatter.Currency(payment.Amount, payment.Currency)</span>
+                    @if (!string.IsNullOrWhiteSpace(payment.SettlementAmount))
+                    {
+                        <div class="small text-muted">@payment.SettlementAmount @Dash(payment.BuyAsset ?? payment.Currency)</div>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+@if (Model.Skip > 0 || Model.HasMore)
+{
+    <div class="d-flex justify-content-between align-items-center mt-4">
+        <div>
+            @if (Model.Skip > 0)
+            {
+                <a class="btn btn-secondary"
+                   asp-action="Payments"
+                   asp-route-storeId="@Model.StoreId"
+                   asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-status="@Model.StatusFilter"
+                   asp-route-asset="@Model.AssetFilter"
+                   asp-route-network="@Model.NetworkFilter"
+                   asp-route-timeRange="@Model.TimeRange"
+                   asp-route-startDate="@Model.StartDate"
+                   asp-route-endDate="@Model.EndDate"
+                   asp-route-skip="@Math.Max(0, Model.Skip - Model.Take)">Previous</a>
+            }
+        </div>
+        <div>
+            @if (Model.HasMore)
+            {
+                <a class="btn btn-secondary"
+                   asp-action="Payments"
+                   asp-route-storeId="@Model.StoreId"
+                   asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-status="@Model.StatusFilter"
+                   asp-route-asset="@Model.AssetFilter"
+                   asp-route-network="@Model.NetworkFilter"
+                   asp-route-timeRange="@Model.TimeRange"
+                   asp-route-startDate="@Model.StartDate"
+                   asp-route-endDate="@Model.EndDate"
+                   asp-route-skip="@(Model.Skip + Model.Take)">Next</a>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .makepay-help-button {
+        line-height: 1;
+        margin-left: .5rem;
+    }
+
+    .makepay-page-help[hidden],
+    .makepay-custom-range[hidden] {
+        display: none !important;
+    }
+
+    .makepay-filter-search {
+        min-width: min(100%, 20rem);
+    }
+
+    .makepay-filter-bar select,
+    .makepay-filter-bar input[type="datetime-local"] {
+        min-width: 10rem;
+    }
+</style>
+
+<script>
+(function () {
+    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
+        var key = panel.dataset.makepayHelp;
+        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
+        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var dismissedKey = key + ':dismissed';
+        function setVisible(visible) {
+            panel.hidden = !visible;
+            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        }
+
+        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+
+        toggle.addEventListener('click', function () {
+            if (panel.hidden) {
+                localStorage.removeItem(dismissedKey);
+                setVisible(true);
+            } else {
+                localStorage.setItem(dismissedKey, 'true');
+                setVisible(false);
+            }
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            setVisible(false);
+        });
+    });
+
+    var timeFilter = document.querySelector('[data-makepay-time-filter]');
+    var customRangeFields = document.querySelectorAll('[data-makepay-custom-range]');
+    if (timeFilter && customRangeFields.length) {
+        function updateCustomRange() {
+            var show = timeFilter.value === 'custom';
+            customRangeFields.forEach(function (field) {
+                field.hidden = !show;
+            });
+        }
+
+        timeFilter.addEventListener('change', updateCustomRange);
+        updateCustomRange();
+    }
+})();
+</script>
+
+@functions {
+    private bool HasFilters()
+    {
+        return !string.IsNullOrWhiteSpace(Model.SearchTerm) ||
+               !string.IsNullOrWhiteSpace(Model.StatusFilter) ||
+               !string.IsNullOrWhiteSpace(Model.AssetFilter) ||
+               !string.IsNullOrWhiteSpace(Model.NetworkFilter) ||
+               !string.IsNullOrWhiteSpace(Model.TimeRange);
+    }
+
+    private static bool Selected(string option, string? value)
+    {
+        return string.Equals(option, value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string StatusClass(BTCPayServer.Data.PaymentStatus status)
+    {
+        return status switch
+        {
+            BTCPayServer.Data.PaymentStatus.Settled => "bg-success",
+            BTCPayServer.Data.PaymentStatus.Processing => "bg-warning text-dark",
+            _ => "bg-secondary"
+        };
+    }
+
+    private static string Dash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ||
+               string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
+            ? "-"
+            : value;
+    }
+
+    private static string FormatAsset(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            string.Equals(value, "null", StringComparison.OrdinalIgnoreCase))
+        {
+            return "-";
+        }
+
+        var asset = value.Trim();
+        if (!asset.Contains('.', StringComparison.Ordinal))
+        {
+            return asset;
+        }
+
+        var parts = asset.Split('.', 2);
+        var chain = parts[0].Trim().ToUpperInvariant();
+        var ticker = parts[1].Split('-', 2)[0].Trim().ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(ticker)
+            ? asset
+            : $"{ticker} on {chain}";
+    }
+
+    private static string DepositExplorerUrl(string address)
+    {
+        return "https://explorer.makecrypto.io/deposit/" + Uri.EscapeDataString(address);
+    }
+}

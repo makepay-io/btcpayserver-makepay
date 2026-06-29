@@ -1,25 +1,66 @@
 @using BTCPayServer.Abstractions.Extensions
 @model BTCPayServer.Plugins.MakePay.PaymentHandler.MakePayPaymentMethodConfig
 @{
-    ViewData.SetActivePage("MakePay", "MakePay Settings", "MakePay");
+    var section = ViewData["MakePaySection"]?.ToString() ?? "general";
+    var activePage = ViewData["MakePayActivePage"]?.ToString() ?? "MakePayGeneral";
+    var title = ViewData["MakePayTitle"]?.ToString() ?? "MakePay General";
+    ViewData.SetActivePage(activePage, "MakePay", title);
     var storeId = Context.Request.RouteValues["storeId"]?.ToString();
+    var helpId = $"makepay-{section}-help";
+    var helpTitle = section switch
+    {
+        "currencies" => "Allowed currencies",
+        "settlement" => "Settlement addresses",
+        _ => "MakePay settings"
+    };
+    var helpBody = section switch
+    {
+        "currencies" => "Choose which MakePay assets and networks customers can use at checkout. Leaving everything enabled gives payers the broadest choice, while disabling assets narrows checkout to the routes you want to support.",
+        "settlement" => "Save merchant-controlled chain addresses for anonymous MakePay links. These addresses are used for merchant refund routing on the selected pay-in network and can also be selected as custom settlement routes.",
+        _ => "Configure how MakePay appears at checkout, whether quotes require review, how receipts are handled, how refunds are routed, and how anonymous MakePay links settle."
+    };
 }
 
 <form method="post">
     <div class="sticky-header-setup"></div>
     <div class="sticky-header d-sm-flex align-items-center justify-content-between">
-        <h2 class="mb-0">@ViewData["Title"]</h2>
+        <h2 class="mb-0 d-flex align-items-center gap-2">
+            <span>@ViewData["Title"]</span>
+            <button type="button"
+                    class="btn btn-link p-0 text-secondary makepay-help-button"
+                    data-makepay-help-toggle="@helpId"
+                    aria-controls="@helpId"
+                    aria-expanded="false"
+                    title="About @title">
+                <vc:icon symbol="info" />
+            </button>
+        </h2>
         <div class="d-flex gap-3 mt-3 mt-sm-0">
-            @if (Model.IsConfigured)
+            @if (section == "general" && Model.IsConfigured)
             {
                 <button name="command" type="submit" value="disconnect" class="btn btn-outline-danger">Disconnect</button>
             }
             <button name="command" type="submit" value="save" class="btn btn-secondary">Save</button>
-            <button name="command" type="submit" value="connect" class="btn btn-primary">Connect MakePay</button>
+            @if (section == "general")
+            {
+                <button name="command" type="submit" value="connect" class="btn btn-primary">Connect MakePay</button>
+            }
         </div>
     </div>
 
     <partial name="_StatusMessage" />
+
+    <div id="@helpId" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="@helpId" hidden>
+        <div class="d-flex gap-3">
+            <div class="flex-fill">
+                <h3 class="h5 mb-2">@helpTitle</h3>
+                <p class="mb-0">@helpBody</p>
+            </div>
+            <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="@helpId" aria-label="Close">
+                <vc:icon symbol="close" />
+            </button>
+        </div>
+    </div>
 
     <div class="row">
         <div class="col-xl-8 col-xxl-constrain">
@@ -43,31 +84,25 @@
             }
             else
             {
-                <div class="alert alert-info">
-                    You can connect a MakePay account, or use anonymous one-time MakePay payment links after adding chain addresses below.
+                <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-connect-options">
+                    <div class="d-flex align-items-start justify-content-between gap-3">
+                        <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                            <vc:icon symbol="caret-down" />
+                            <span class="fw-semibold">Connection options</span>
+                        </button>
+                        <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                            <vc:icon symbol="close" />
+                        </button>
+                    </div>
+                    <div class="makepay-notice-body mt-2">
+                        You can connect a MakePay account, or use anonymous one-time MakePay payment links after adding chain addresses below.
+                    </div>
                 </div>
             }
 
-            <ul class="nav nav-tabs mt-4" role="tablist" id="makepay-settings-tabs">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="makepay-general-tab" data-bs-toggle="tab" data-bs-target="#makepay-general" type="button" role="tab" aria-controls="makepay-general" aria-selected="true">
-                        General
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="makepay-currencies-tab" data-bs-toggle="tab" data-bs-target="#makepay-currencies" type="button" role="tab" aria-controls="makepay-currencies" aria-selected="false">
-                        Allowed currencies
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="makepay-settlement-tab" data-bs-toggle="tab" data-bs-target="#makepay-settlement" type="button" role="tab" aria-controls="makepay-settlement" aria-selected="false">
-                        Settlement
-                    </button>
-                </li>
-            </ul>
-
-            <div class="tab-content pt-4">
-                <div class="tab-pane fade show active" id="makepay-general" role="tabpanel" aria-labelledby="makepay-general-tab">
+            <div class="pt-4">
+                @if (section == "general")
+                {
                     <div class="form-group">
                         <div class="d-flex align-items-center">
                             <input id="Enabled" name="Enabled" type="checkbox" value="true" class="btcpay-toggle me-2" @(Model.Enabled ? "checked" : null) />
@@ -134,12 +169,126 @@
                     </div>
 
                     <h4 class="mt-5 mb-3">Settlement</h4>
-                    <div class="alert alert-info mb-0">
-                        Connected MakePay payments reserve a fresh BTC receive address from this BTCPay store for each invoice. Anonymous payments use the chain addresses configured in the Settlement tab.
-                    </div>
-                </div>
+                    <input asp-for="SettlementCurrency" type="hidden" />
+                    <input asp-for="SettlementPrioritiesJson" type="hidden" />
+                    <input asp-for="ChainAddressesJson" type="hidden" />
+                    @if (Model.IsConfigured)
+                    {
+                        <input asp-for="SettlementMode" type="hidden" />
+                    }
+                    else
+                    {
+                        <div class="form-group" id="makepay-settlement-route" data-url="@Url.Action("Currencies", "MakePay", new { storeId })">
+                            <label class="form-label">Settlement destination</label>
+                            <div class="makepay-settlement-mode-grid">
+                                <label class="makepay-settlement-mode-card border rounded p-3">
+                                    <input class="form-check-input mt-1" type="radio" name="SettlementMode" value="@MakePayPaymentMethodConfig.SettlementModeBtcpay" @(Model.NormalizedSettlementMode() == MakePayPaymentMethodConfig.SettlementModeCustom ? null : "checked") />
+                                    <span class="min-w-0">
+                                        <span class="d-block fw-semibold">BTCPay Server</span>
+                                        <span class="d-block text-muted small mt-1">Reserve a fresh BTC wallet address from this store for each invoice.</span>
+                                    </span>
+                                </label>
+                                <label class="makepay-settlement-mode-card border rounded p-3">
+                                    <input class="form-check-input mt-1" type="radio" name="SettlementMode" value="@MakePayPaymentMethodConfig.SettlementModeCustom" @(Model.NormalizedSettlementMode() == MakePayPaymentMethodConfig.SettlementModeCustom ? "checked" : null) />
+                                    <span class="min-w-0">
+                                        <span class="d-block fw-semibold">Custom MakePay route</span>
+                                        <span class="d-block text-muted small mt-1">Settle to a saved chain address from the MakePay Settlement page.</span>
+                                    </span>
+                                </label>
+                            </div>
 
-                <div class="tab-pane fade" id="makepay-currencies" role="tabpanel" aria-labelledby="makepay-currencies-tab">
+                            <div id="makepay-custom-settlement-panel" class="border rounded p-3 mt-3">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="makepay-settlement-currency">Currency</label>
+                                        <select class="form-select" id="makepay-settlement-currency"></select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="makepay-settlement-chain">Chain</label>
+                                        <select class="form-select" id="makepay-settlement-chain"></select>
+                                    </div>
+                                </div>
+                                <div class="form-text mt-3" id="makepay-settlement-route-help">
+                                    Loading saved MakePay settlement routes...
+                                </div>
+                                <div class="mt-3">
+                                    <a asp-action="Settlement" asp-route-storeId="@storeId">Manage settlement addresses</a>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="alert alert-info makepay-notice mb-0" role="alert" data-makepay-notice="makepay-settlement-summary">
+                        <div class="d-flex align-items-start justify-content-between gap-3">
+                            <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                <vc:icon symbol="caret-down" />
+                                <span class="fw-semibold">Settlement routing</span>
+                            </button>
+                            <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                <vc:icon symbol="close" />
+                            </button>
+                        </div>
+                        <div class="makepay-notice-body mt-2">
+                            Connected MakePay payments reserve a fresh BTC receive address from this BTCPay store for each invoice. Anonymous payments use the chain addresses configured in the Settlement tab.
+                        </div>
+                    </div>
+
+                    <h4 class="mt-5 mb-3">Anonymous Checkout Policy</h4>
+                    <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-policy">
+                        <div class="d-flex align-items-start justify-content-between gap-3">
+                            <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                <vc:icon symbol="caret-down" />
+                                <span class="fw-semibold">Anonymous checkout defaults</span>
+                            </button>
+                            <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                <vc:icon symbol="close" />
+                            </button>
+                        </div>
+                        <div class="makepay-notice-body mt-2">
+                            These defaults are sent when the plugin creates anonymous MakePay payment links. Connected MakePay accounts continue to use the policy configured in MakePay.
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label asp-for="PaymentFeePayer" class="form-label">Who pays payment fees</label>
+                        <select asp-for="PaymentFeePayer" class="form-select">
+                            <option value="@MakePayPaymentMethodConfig.PaymentFeePayerMerchant">Merchant</option>
+                            <option value="@MakePayPaymentMethodConfig.PaymentFeePayerCustomer">Customer</option>
+                        </select>
+                        <div class="form-text">
+                            Merchant absorbs service fees. Customer adds service fees to the checkout amount before the payer sends funds.
+                        </div>
+                    </div>
+
+                    <h5 class="mt-4 mb-3">Reconciliation</h5>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label asp-for="AllowedPaymentVariancePercent" class="form-label">Percent threshold</label>
+                            <div class="input-group">
+                                <input asp-for="AllowedPaymentVariancePercent" type="number" min="0" max="100" step="0.01" class="form-control" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">Accepted variance below or above the expected payment amount.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="AllowedPaymentVarianceFixedUsd" class="form-label">Fixed threshold</label>
+                            <div class="input-group">
+                                <input asp-for="AllowedPaymentVarianceFixedUsd" type="number" min="0" step="0.01" class="form-control" />
+                                <span class="input-group-text">USD</span>
+                            </div>
+                            <div class="form-text">Additional fixed USD underpayment variance.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="MerchantSurchargePercent" class="form-label">Merchant surcharge fee</label>
+                            <div class="input-group">
+                                <input asp-for="MerchantSurchargePercent" type="number" min="-1" max="1" step="0.01" class="form-control" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">Use a value from -1% to 1%.</div>
+                        </div>
+                    </div>
+                }
+                else if (section == "currencies")
+                {
                     <div class="form-group">
                         <input asp-for="AllowedAssetIdentifiers" type="hidden" />
                         <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
@@ -164,17 +313,28 @@
                             With Allow all enabled, new MakePay-supported currencies are automatically available.
                         </div>
                     </div>
-                </div>
-
-                <div class="tab-pane fade" id="makepay-settlement" role="tabpanel" aria-labelledby="makepay-settlement-tab">
+                }
+                else if (section == "settlement")
+                {
                     <input asp-for="SettlementCurrency" type="hidden" />
                     <input asp-for="SettlementPrioritiesJson" type="hidden" />
                     <input asp-for="ChainAddressesJson" type="hidden" />
 
                     @if (Model.IsConfigured)
                     {
-                        <div class="alert alert-info">
-                            Settlement for connected MakePay accounts is managed in the MakePay wallet. These routes are read-only here so the plugin stays aligned with your MakePay account settings.
+                        <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-connected-settlement">
+                            <div class="d-flex align-items-start justify-content-between gap-3">
+                                <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                    <vc:icon symbol="caret-down" />
+                                    <span class="fw-semibold">Connected settlement</span>
+                                </button>
+                                <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                    <vc:icon symbol="close" />
+                                </button>
+                            </div>
+                            <div class="makepay-notice-body mt-2">
+                                Settlement for connected MakePay accounts is managed in the MakePay wallet. These routes are read-only here so the plugin stays aligned with your MakePay account settings.
+                            </div>
                         </div>
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
                             <a class="btn btn-outline-primary" href="https://www.makecrypto.io/home/wemine/wallet" target="_blank" rel="noreferrer noopener">
@@ -193,8 +353,19 @@
                     }
                     else
                     {
-                        <div class="alert alert-info">
-                            Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses for merchant refund routing on the selected pay-in network; the BTC address is also used as the default anonymous settlement route.
+                        <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-settlement">
+                            <div class="d-flex align-items-start justify-content-between gap-3">
+                                <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
+                                    <vc:icon symbol="caret-down" />
+                                    <span class="fw-semibold">Anonymous settlement</span>
+                                </button>
+                                <button type="button" class="btn-close flex-shrink-0" data-role="makepay-notice-dismiss" aria-label="Close">
+                                    <vc:icon symbol="close" />
+                                </button>
+                            </div>
+                            <div class="makepay-notice-body mt-2">
+                                Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses for merchant refund routing on the selected pay-in network; the BTC address is also used as the default anonymous settlement route.
+                            </div>
                         </div>
 
                         <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
@@ -222,7 +393,7 @@
                             <div class="border rounded p-3 text-muted">Loading chains...</div>
                         </div>
                     }
-                </div>
+                }
             </div>
         </div>
     </div>
@@ -237,6 +408,24 @@
 
     .makepay-chain-address-card {
         min-width: 0;
+    }
+
+    .makepay-settlement-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: .75rem;
+    }
+
+    .makepay-settlement-mode-card {
+        display: flex;
+        align-items: flex-start;
+        gap: .75rem;
+        cursor: pointer;
+    }
+
+    .makepay-settlement-mode-card:has(input:checked) {
+        border-color: var(--btcpay-primary, #51b543) !important;
+        background: rgba(81, 181, 67, .08);
     }
 
     .makepay-chain-logo {
@@ -268,66 +457,452 @@
         border-color: rgba(255, 92, 92, .45) !important;
         color: #ff6b6b !important;
     }
+
+    .makepay-notice [data-role="makepay-notice-toggle"] {
+        min-width: 0;
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .makepay-notice [data-role="makepay-notice-toggle"]:hover,
+    .makepay-notice [data-role="makepay-notice-toggle"]:focus {
+        text-decoration: underline;
+    }
+
+    .makepay-notice.is-collapsed .makepay-notice-body {
+        display: none;
+    }
+
+    .makepay-notice.is-collapsed [data-role="makepay-notice-toggle"] .icon {
+        transform: rotate(-90deg);
+    }
+
+    .makepay-notice [data-role="makepay-notice-toggle"] .icon {
+        transition: transform .15s ease-in-out;
+    }
+
+    .makepay-help-button {
+        line-height: 1;
+        margin-left: .5rem;
+    }
+
+    .makepay-page-help[hidden] {
+        display: none !important;
+    }
 </style>
 
 <script>
 (function () {
-    var tabs = document.getElementById('makepay-settings-tabs');
-    var form = document.querySelector('form[method="post"]');
-    if (!tabs || !form || typeof bootstrap === 'undefined' || !bootstrap.Tab) {
+    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
+        var key = panel.dataset.makepayHelp;
+        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
+        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var dismissedKey = key + ':dismissed';
+        function setVisible(visible) {
+            panel.hidden = !visible;
+            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        }
+
+        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+
+        toggle.addEventListener('click', function () {
+            if (panel.hidden) {
+                localStorage.removeItem(dismissedKey);
+                setVisible(true);
+            } else {
+                localStorage.setItem(dismissedKey, 'true');
+                setVisible(false);
+            }
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            setVisible(false);
+        });
+    });
+
+    document.querySelectorAll('[data-makepay-notice]').forEach(function (notice) {
+        var key = notice.dataset.makepayNotice;
+        var toggle = notice.querySelector('[data-role="makepay-notice-toggle"]');
+        var dismiss = notice.querySelector('[data-role="makepay-notice-dismiss"]');
+        if (!key || !toggle || !dismiss) {
+            return;
+        }
+
+        var collapsedKey = key + ':collapsed';
+        var dismissedKey = key + ':dismissed';
+
+        if (localStorage.getItem(dismissedKey) === 'true') {
+            notice.remove();
+            return;
+        }
+
+        function setCollapsed(collapsed) {
+            notice.classList.toggle('is-collapsed', collapsed);
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            if (collapsed) {
+                localStorage.setItem(collapsedKey, 'true');
+            } else {
+                localStorage.removeItem(collapsedKey);
+            }
+        }
+
+        setCollapsed(localStorage.getItem(collapsedKey) === 'true');
+
+        toggle.addEventListener('click', function () {
+            setCollapsed(!notice.classList.contains('is-collapsed'));
+        });
+
+        dismiss.addEventListener('click', function () {
+            localStorage.setItem(dismissedKey, 'true');
+            notice.remove();
+        });
+    });
+})();
+</script>
+
+<script>
+(function () {
+    var root = document.getElementById('makepay-settlement-route');
+    var currencyHidden = document.getElementById('SettlementCurrency');
+    var prioritiesHidden = document.getElementById('SettlementPrioritiesJson');
+    var chainHidden = document.getElementById('ChainAddressesJson');
+    var currencySelect = document.getElementById('makepay-settlement-currency');
+    var chainSelect = document.getElementById('makepay-settlement-chain');
+    var help = document.getElementById('makepay-settlement-route-help');
+    var panel = document.getElementById('makepay-custom-settlement-panel');
+    if (!root || !currencyHidden || !prioritiesHidden || !chainHidden || !currencySelect || !chainSelect || !help || !panel) {
         return;
     }
 
-    var storageKey = 'makepay-settings-active-tab-' + @Json.Serialize(storeId ?? string.Empty);
-    var allowedTargets = Array.from(tabs.querySelectorAll('[data-bs-toggle="tab"]'))
-        .map(function (tab) { return tab.getAttribute('data-bs-target'); })
-        .filter(Boolean);
+    var modeInputs = Array.from(document.querySelectorAll('input[name="SettlementMode"]'));
+    var addresses = parseAddressBook(chainHidden.value);
+    var routesByCurrency = new Map();
 
-    function activeTarget() {
-        var active = tabs.querySelector('[data-bs-toggle="tab"].active');
-        return active ? active.getAttribute('data-bs-target') : '';
+    function readText(value) {
+        return String(value || '').trim();
     }
 
-    function remember(target) {
-        if (!target || allowedTargets.indexOf(target) === -1) {
+    function normalizeSymbol(value) {
+        var normalized = readText(value).toUpperCase();
+        var aliases = {
+            BINANCE: 'BNB',
+            POLYGON: 'POL',
+            TRX: 'TRON'
+        };
+        normalized = aliases[normalized] || normalized;
+        return /^[A-Z0-9_]{2,24}$/.test(normalized) ? normalized : '';
+    }
+
+    function parseAddressBook(value) {
+        var output = new Map();
+        try {
+            var parsed = JSON.parse(String(value || '[]'));
+            if (Array.isArray(parsed)) {
+                parsed.forEach(function (item) {
+                    var chain = normalizeSymbol(item && (item.chain || item.Chain || item.chainCode || item.ChainCode));
+                    var address = readText(item && (item.address || item.Address || item.sourceAddress || item.SourceAddress));
+                    if (chain && address) {
+                        output.set(chain, address);
+                    }
+                });
+            } else if (parsed && typeof parsed === 'object') {
+                Object.keys(parsed).forEach(function (key) {
+                    var value = parsed[key];
+                    var chain = normalizeSymbol(key);
+                    var address = typeof value === 'string'
+                        ? readText(value)
+                        : readText(value && (value.address || value.Address || value.sourceAddress || value.SourceAddress));
+                    if (chain && address) {
+                        output.set(chain, address);
+                    }
+                });
+            }
+        } catch (error) {
+            return output;
+        }
+
+        return output;
+    }
+
+    function tokenIdentifier(token) {
+        return readText(token && (token.identifier || token.assetIdentifier || token.id));
+    }
+
+    function normalizeIdentifierPart(value) {
+        return normalizeSymbol(value);
+    }
+
+    function identifierParts(token) {
+        return tokenIdentifier(token)
+            .split(/[.:-]/)
+            .map(normalizeIdentifierPart)
+            .filter(function (part) { return part.length > 0; });
+    }
+
+    function tokenChain(token) {
+        var explicit = normalizeSymbol(token && (token.chain || token.chainCode || token.network || token.chainId));
+        if (explicit) {
+            return explicit;
+        }
+
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return addresses.has(part); }) || parts[0] || '';
+    }
+
+    function tokenCurrency(token) {
+        var explicit = normalizeSymbol(token && (token.ticker || token.symbol || token.currency));
+        if (explicit) {
+            return explicit;
+        }
+
+        var chain = tokenChain(token);
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return part !== chain; }) || parts[0] || '';
+    }
+
+    function tokenLabel(token, currency, chain) {
+        var name = readText(token && token.name);
+        return name && name.toUpperCase() !== currency ? currency + ' - ' + name : currency + ' on ' + chain;
+    }
+
+    function selectedMode() {
+        var selected = modeInputs.find(function (input) { return input.checked; });
+        return selected ? selected.value : '@MakePayPaymentMethodConfig.SettlementModeBtcpay';
+    }
+
+    function setMode(mode) {
+        modeInputs.forEach(function (input) {
+            input.checked = input.value === mode;
+        });
+        updatePanel();
+        writeHidden();
+    }
+
+    function routeKey(route) {
+        return route.currency + ':' + route.chain + ':' + route.asset;
+    }
+
+    function buildRoutes(tokens) {
+        routesByCurrency.clear();
+        tokens.forEach(function (token) {
+            var chain = tokenChain(token);
+            var currency = tokenCurrency(token);
+            var address = addresses.get(chain);
+            if (!chain || !currency || !address) {
+                return;
+            }
+
+            var asset = tokenIdentifier(token) || (chain + '.' + currency);
+            var route = {
+                currency: currency,
+                chain: chain,
+                address: address,
+                asset: asset,
+                label: tokenLabel(token, currency, chain)
+            };
+            var routes = routesByCurrency.get(currency) || [];
+            if (!routes.some(function (existing) { return routeKey(existing) === routeKey(route); })) {
+                routes.push(route);
+            }
+            routesByCurrency.set(currency, routes);
+        });
+
+        routesByCurrency.forEach(function (routes) {
+            routes.sort(function (a, b) {
+                if (a.chain === 'BTC') {
+                    return -1;
+                }
+                if (b.chain === 'BTC') {
+                    return 1;
+                }
+                return a.chain.localeCompare(b.chain);
+            });
+        });
+    }
+
+    function parseCurrentPriority() {
+        try {
+            var parsed = JSON.parse(String(prioritiesHidden.value || '[]'));
+            if (!Array.isArray(parsed) || parsed.length === 0) {
+                return null;
+            }
+
+            var first = parsed[0];
+            return {
+                chain: normalizeSymbol(first && (first.chain || first.Chain || first.chainCode || first.ChainCode)),
+                asset: readText(first && (first.asset || first.Asset || first.assetIdentifier || first.AssetIdentifier))
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function renderCurrencyOptions() {
+        currencySelect.innerHTML = '';
+        Array.from(routesByCurrency.keys()).sort().forEach(function (currency) {
+            var option = document.createElement('option');
+            option.value = currency;
+            option.textContent = currency;
+            currencySelect.appendChild(option);
+        });
+    }
+
+    function findBestRoute(currency, preferred) {
+        var routes = routesByCurrency.get(currency) || [];
+        if (preferred) {
+            var exact = routes.find(function (route) {
+                return route.chain === preferred.chain &&
+                    (!preferred.asset || route.asset === preferred.asset);
+            });
+            if (exact) {
+                return exact;
+            }
+        }
+        return routes[0] || null;
+    }
+
+    function renderChainOptions(preferred) {
+        chainSelect.innerHTML = '';
+        var routes = routesByCurrency.get(currencySelect.value) || [];
+        routes.forEach(function (route) {
+            var option = document.createElement('option');
+            option.value = routeKey(route);
+            option.textContent = route.chain + ' - ' + route.label;
+            option.dataset.currency = route.currency;
+            option.dataset.chain = route.chain;
+            option.dataset.asset = route.asset;
+            option.dataset.address = route.address;
+            chainSelect.appendChild(option);
+        });
+
+        var selected = findBestRoute(currencySelect.value, preferred);
+        if (selected) {
+            chainSelect.value = routeKey(selected);
+        }
+    }
+
+    function selectedRoute() {
+        var option = chainSelect.selectedOptions[0];
+        if (!option) {
+            return null;
+        }
+
+        return {
+            currency: option.dataset.currency,
+            chain: option.dataset.chain,
+            asset: option.dataset.asset,
+            address: option.dataset.address
+        };
+    }
+
+    function truncateAddress(address) {
+        address = readText(address);
+        return address.length > 22 ? address.slice(0, 12) + '...' + address.slice(-8) : address;
+    }
+
+    function updatePanel() {
+        var custom = selectedMode() === '@MakePayPaymentMethodConfig.SettlementModeCustom';
+        panel.classList.toggle('d-none', !custom);
+        currencySelect.disabled = !custom || routesByCurrency.size === 0;
+        chainSelect.disabled = !custom || chainSelect.options.length === 0;
+    }
+
+    function writeHidden() {
+        if (selectedMode() !== '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+            currencyHidden.value = 'BTC';
+            prioritiesHidden.value = '';
+            help.textContent = routesByCurrency.size === 0
+                ? 'Add settlement addresses before selecting a custom MakePay route.'
+                : 'BTCPay Server settlement is selected. A fresh BTC address will be reserved for each invoice.';
             return;
         }
 
-        try {
-            window.sessionStorage.setItem(storageKey, target);
-        } catch (error) {
+        var route = selectedRoute();
+        if (!route) {
+            prioritiesHidden.value = '';
+            help.textContent = 'No saved settlement route is available for the selected currency.';
             return;
         }
+
+        currencyHidden.value = route.currency;
+        prioritiesHidden.value = JSON.stringify([{
+            chain: route.chain,
+            address: route.address,
+            asset: route.asset
+        }]);
+        help.textContent = 'MakePay will settle ' + route.currency + ' on ' + route.chain + ' to ' + truncateAddress(route.address) + '.';
     }
 
-    function recall() {
-        var hash = window.location.hash;
-        if (hash && allowedTargets.indexOf(hash) !== -1) {
-            return hash;
+    function initializeRoutes(tokens) {
+        buildRoutes(tokens);
+        renderCurrencyOptions();
+
+        if (routesByCurrency.size === 0) {
+            setMode('@MakePayPaymentMethodConfig.SettlementModeBtcpay');
+            modeInputs.forEach(function (input) {
+                if (input.value === '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+                    input.disabled = true;
+                }
+            });
+            return;
         }
 
-        try {
-            return window.sessionStorage.getItem(storageKey) || '';
-        } catch (error) {
-            return '';
+        var priority = parseCurrentPriority();
+        var initialCurrency = routesByCurrency.has(currencyHidden.value)
+            ? currencyHidden.value
+            : Array.from(routesByCurrency.keys()).sort()[0];
+        if (priority) {
+            routesByCurrency.forEach(function (routes, currency) {
+                if (routes.some(function (route) { return route.chain === priority.chain && (!priority.asset || route.asset === priority.asset); })) {
+                    initialCurrency = currency;
+                }
+            });
         }
+
+        currencySelect.value = initialCurrency;
+        renderChainOptions(priority);
+        updatePanel();
+        writeHidden();
     }
 
-    tabs.addEventListener('shown.bs.tab', function (event) {
-        remember(event.target && event.target.getAttribute('data-bs-target'));
+    modeInputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+            updatePanel();
+            writeHidden();
+        });
     });
 
-    form.addEventListener('submit', function () {
-        remember(activeTarget());
+    currencySelect.addEventListener('change', function () {
+        renderChainOptions(null);
+        writeHidden();
     });
 
-    var target = recall();
-    if (target && allowedTargets.indexOf(target) !== -1) {
-        var tab = tabs.querySelector('[data-bs-target="' + target + '"]');
-        if (tab) {
-            bootstrap.Tab.getOrCreateInstance(tab).show();
-        }
-    }
+    chainSelect.addEventListener('change', writeHidden);
+
+    fetch(root.dataset.url, { cache: 'no-store' })
+        .then(function (response) {
+            return response.json().then(function (payload) {
+                if (!response.ok || !Array.isArray(payload)) {
+                    throw new Error(payload && payload.error ? payload.error : 'Unable to load MakePay settlement routes.');
+                }
+                return payload;
+            });
+        })
+        .then(initializeRoutes)
+        .catch(function (error) {
+            setMode('@MakePayPaymentMethodConfig.SettlementModeBtcpay');
+            modeInputs.forEach(function (input) {
+                if (input.value === '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+                    input.disabled = true;
+                }
+            });
+            help.textContent = error && error.message ? error.message : 'Unable to load MakePay settlement routes.';
+        });
 })();
 </script>
 
@@ -532,7 +1107,7 @@
     }
 
     function normalizeChain(value) {
-        var normalized = readText(value).split('.', 1)[0].toUpperCase();
+        var normalized = readText(value).toUpperCase();
         var aliases = {
             BINANCE: 'BNB',
             POLYGON: 'POL',
@@ -577,17 +1152,32 @@
         return readText(token && (token.identifier || token.assetIdentifier || token.id));
     }
 
+    function identifierParts(token) {
+        return tokenIdentifier(token)
+            .split(/[.:-]/)
+            .map(normalizeChain)
+            .filter(function (part) { return part.length > 0; });
+    }
+
     function tokenChain(token) {
-        return normalizeChain(tokenIdentifier(token)) ||
-            normalizeChain(token && (token.chain || token.chainCode || token.network || token.chainId));
+        var explicit = normalizeChain(token && (token.chain || token.chainCode || token.network || token.chainId));
+        if (explicit) {
+            return explicit;
+        }
+
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return Object.prototype.hasOwnProperty.call(chainLabels, part); }) || parts[0] || '';
     }
 
     function tokenTicker(token) {
-        var identifier = tokenIdentifier(token);
-        var fromIdentifier = identifier.indexOf('.') > -1
-            ? identifier.split('.').slice(1).join('.')
-            : '';
-        return readText(token && (token.ticker || token.symbol || token.currency || fromIdentifier));
+        var explicit = readText(token && (token.ticker || token.symbol || token.currency));
+        if (explicit) {
+            return explicit;
+        }
+
+        var chain = tokenChain(token);
+        var parts = identifierParts(token);
+        return parts.find(function (part) { return part !== chain; }) || parts[0] || tokenIdentifier(token);
     }
 
     function tokenLogo(token) {
