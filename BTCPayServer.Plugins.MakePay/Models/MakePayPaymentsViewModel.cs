@@ -46,6 +46,7 @@ public class MakePayPaymentListItem
     public string? PaymentRequest { get; set; }
     public string? TransactionIds { get; set; }
     public string? DeliveryId { get; set; }
+    public bool IsSessionOnly { get; set; }
 }
 
 public class MakePayPaymentDetailsViewModel

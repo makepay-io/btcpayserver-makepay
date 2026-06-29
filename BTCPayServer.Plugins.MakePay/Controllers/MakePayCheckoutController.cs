@@ -61,6 +61,22 @@ public class MakePayCheckoutController : ControllerBase
             "/api/swap/tokens?paymentLinkUid=" + Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid)));
     }
 
+    [HttpGet("session")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
+    public async Task<IActionResult> Session(string storeId, string invoiceId)
+    {
+        var resolved = await Resolve(storeId, invoiceId, requirePayable: false);
+        if (resolved is null)
+        {
+            return NotFound();
+        }
+
+        return await Proxy(() => _makePayApiClient.SendPublic(
+            resolved.Config,
+            HttpMethod.Get,
+            "/api/public/payment-links/" + Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid) + "/current-session"));
+    }
+
     [HttpPost("quote")]
     [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
     [RequestSizeLimit(MakePayCheckoutPolicy.MaxJsonBodyBytes)]
@@ -135,7 +151,7 @@ public class MakePayCheckoutController : ControllerBase
     [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
     public async Task<IActionResult> Status(string storeId, string invoiceId, [FromQuery] string sessionId)
     {
-        var resolved = await Resolve(storeId, invoiceId);
+        var resolved = await Resolve(storeId, invoiceId, requirePayable: false);
         if (resolved is null)
         {
             return NotFound();
@@ -155,7 +171,7 @@ public class MakePayCheckoutController : ControllerBase
             Uri.EscapeDataString(sessionId)));
     }
 
-    private async Task<ResolvedCheckout?> Resolve(string storeId, string invoiceId)
+    private async Task<ResolvedCheckout?> Resolve(string storeId, string invoiceId, bool requirePayable = true)
     {
         var store = await _storeRepository.FindStore(storeId);
         var invoice = await _invoiceRepository.GetInvoice(invoiceId);
@@ -172,7 +188,7 @@ public class MakePayCheckoutController : ControllerBase
             return null;
         }
 
-        if (!MakePayCheckoutPolicy.IsInvoicePayable(invoice))
+        if (requirePayable && !MakePayCheckoutPolicy.IsInvoicePayable(invoice))
         {
             return null;
         }

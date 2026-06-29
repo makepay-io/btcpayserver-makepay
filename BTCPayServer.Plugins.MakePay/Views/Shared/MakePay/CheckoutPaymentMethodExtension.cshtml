@@ -531,6 +531,7 @@
                 self.nowMs = Date.now();
                 self.autoRefreshQuoteIfNeeded();
             }, 1000);
+            this.restoreExistingSession();
             this.loadTokens();
         },
         beforeDestroy: function () {
@@ -546,7 +547,7 @@
                 this.isBusy = true;
                 try {
                     var response = await fetch(this.apiBase + '/tokens', { cache: 'no-store' });
-                    var payload = await response.json();
+                    var payload = await this.parseFetchPayload(response, 'Unable to load currencies.');
                     if (!response.ok || !Array.isArray(payload)) {
                         throw new Error(payload && payload.error ? payload.error : 'Unable to load currencies.');
                     }
@@ -581,8 +582,55 @@
                     if (this.tokens.length === 0) {
                         this.error = 'No MakePay currencies are available with the current settings.';
                     }
+                    this.syncSelectedCurrencyFromAsset();
                 } catch (err) {
                     this.error = err && err.message ? err.message : 'Unable to load currencies.';
+                } finally {
+                    this.isBusy = false;
+                }
+            },
+            parseFetchPayload: async function (response, fallbackMessage) {
+                var text = await response.text();
+                if (!text.trim()) {
+                    return {};
+                }
+
+                try {
+                    return JSON.parse(text);
+                } catch (err) {
+                    throw new Error(fallbackMessage || 'MakePay checkout is temporarily unavailable. Please retry in a few seconds.');
+                }
+            },
+            sessionPayload: function (payload) {
+                return payload && payload.session ? payload.session : payload;
+            },
+            restoreExistingSession: async function (showErrors) {
+                this.isBusy = true;
+                try {
+                    var response = await fetch(this.apiBase + '/session', { cache: 'no-store' });
+                    var payload = await this.parseFetchPayload(response, 'Unable to load active MakePay payment.');
+                    if (!response.ok) {
+                        throw new Error(payload && payload.error ? payload.error : 'Unable to load active MakePay payment.');
+                    }
+
+                    var session = this.sessionPayload(payload);
+                    if (!session || !session.sessionId) {
+                        return null;
+                    }
+
+                    this.quoteSessionId = String(session.sessionId);
+                    this.selectedAsset = String(session.selectedSellAsset || session.sellAsset || this.selectedAsset || '');
+                    this.syncSelectedCurrencyFromAsset();
+                    this.awaitingConfirmation = false;
+                    this.paymentStarted = !!(session.deposit || session.cashApp);
+                    this.applyPaymentState(session);
+                    this.startPolling(session.sessionId);
+                    return session;
+                } catch (err) {
+                    if (showErrors) {
+                        this.error = err && err.message ? err.message : 'Unable to load active MakePay payment.';
+                    }
+                    return null;
                 } finally {
                     this.isBusy = false;
                 }
@@ -596,6 +644,7 @@
             },
             selectNetwork: function (identifier) {
                 this.selectedAsset = identifier;
+                this.syncSelectedCurrencyFromAsset();
                 this.refundAddress = '';
                 this.resetQuote();
             },
@@ -681,6 +730,16 @@
                         return key === allowed || key.indexOf(allowed) >= 0 || allowed.indexOf(key) >= 0;
                     });
                 });
+            },
+            syncSelectedCurrencyFromAsset: function () {
+                if (!this.selectedAsset || this.selectedCurrency) {
+                    return;
+                }
+
+                var token = this.selectedToken;
+                if (token) {
+                    this.selectedCurrency = (token.ticker || token.symbol || token.identifier).toUpperCase();
+                }
             },
             isSettlementAsset: function (token) {
                 return this.settlementAssetKey &&
@@ -829,7 +888,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.buildPaymentBody())
                     });
-                    var payload = await response.json();
+                    var payload = await this.parseFetchPayload(response, 'Unable to quote payment.');
                     if (!response.ok || !payload.sessionId) {
                         throw new Error(payload && payload.error ? payload.error : 'Unable to quote payment.');
                     }
@@ -864,7 +923,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    var payload = await response.json();
+                    var payload = await this.parseFetchPayload(response, 'Unable to start payment.');
                     if (!response.ok || !payload.sessionId) {
                         throw new Error(payload && payload.error ? payload.error : 'Unable to start payment.');
                     }
@@ -873,7 +932,15 @@
                     this.applyPaymentState(payload);
                     this.startPolling(payload.sessionId);
                 } catch (err) {
-                    this.error = err && err.message ? err.message : 'Unable to start payment.';
+                    var message = err && err.message ? err.message : 'Unable to start payment.';
+                    if (message.toLowerCase().indexOf('already been used') >= 0) {
+                        var restored = await this.restoreExistingSession(true);
+                        if (restored) {
+                            this.error = '';
+                            return;
+                        }
+                    }
+                    this.error = message;
                 } finally {
                     this.isBusy = false;
                 }
@@ -899,6 +966,14 @@
                 }
             },
             applyPaymentState: function (payload) {
+                payload = this.sessionPayload(payload) || {};
+                if (payload.sessionId) {
+                    this.quoteSessionId = String(payload.sessionId);
+                }
+                if (payload.selectedSellAsset && !this.selectedAsset) {
+                    this.selectedAsset = String(payload.selectedSellAsset);
+                    this.syncSelectedCurrencyFromAsset();
+                }
                 this.status = payload.status || this.status;
                 this.applyQuotedAmounts(payload);
                 this.paymentExpiresAtMs = this.parseDateMs(payload.expiresAt) || this.paymentExpiresAtMs;
@@ -941,7 +1016,7 @@
                         this.apiBase + '/status?sessionId=' + encodeURIComponent(sessionId),
                         { cache: 'no-store' }
                     );
-                    var payload = await response.json();
+                    var payload = await this.parseFetchPayload(response, 'Unable to poll MakePay status.');
                     if (response.ok) {
                         this.applyPaymentState(payload);
                     }

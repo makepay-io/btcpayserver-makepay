@@ -27,7 +27,7 @@
 <div id="makepay-payments-help" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="makepay-payments-help" hidden>
     <div class="d-flex gap-3">
         <div class="flex-fill">
-            <p class="mb-2">MakePay payments show every BTCPay invoice payment recorded through the MakePay payment method.</p>
+            <p class="mb-2">MakePay payments show BTCPay invoice payments recorded through the MakePay payment method, plus open MakePay checkout sessions that already generated a deposit address.</p>
             <p class="mb-2">Use this page to inspect the MakePay session, selected asset, deposit address, transaction id, BTCPay payment status, and settlement amount.</p>
             <p class="mb-0">Search matches invoice ids, order ids, MakePay sessions, payment links, deposit addresses, payment requests, transaction ids, assets, networks, and statuses.</p>
         </div>
@@ -105,7 +105,6 @@
         <tr>
             <th class="text-nowrap">Date</th>
             <th>Invoice</th>
-            <th>Session</th>
             <th>Asset</th>
             <th>Deposit</th>
             <th>Transaction</th>
@@ -117,7 +116,7 @@
         @if (!Model.Payments.Any())
         {
             <tr>
-                <td colspan="8" class="text-muted py-4">
+                <td colspan="7" class="text-muted py-4">
                     No MakePay payments found.
                 </td>
             </tr>
@@ -138,18 +137,6 @@
                     {
                         <div class="small text-muted text-break">@payment.OrderId</div>
                     }
-                </td>
-                <td>
-                    @if (!string.IsNullOrWhiteSpace(payment.SessionId))
-                    {
-                        <a asp-action="PaymentDetails" asp-route-storeId="@Model.StoreId" asp-route-paymentId="@payment.PaymentId">
-                            <vc:truncate-center text="@payment.SessionId" classes="truncate-center-id" />
-                        </a>
-                    }
-                    else
-                    {
-                        <span class="text-muted">-</span>
-                    }
                     @if (!string.IsNullOrWhiteSpace(payment.PaymentLinkUid))
                     {
                         <div class="small text-muted">
@@ -158,7 +145,7 @@
                     }
                 </td>
                 <td>
-                    <div>@(payment.SellAsset ?? "Unknown")</div>
+                    <div>@FormatAsset(payment.SellAsset)</div>
                     @if (!string.IsNullOrWhiteSpace(payment.RequiredSellAmount))
                     {
                         <div class="small text-muted text-nowrap">@payment.RequiredSellAmount</div>
@@ -167,7 +154,9 @@
                 <td>
                     @if (!string.IsNullOrWhiteSpace(payment.DepositAddress))
                     {
-                        <vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" />
+                        <a href="@DepositExplorerUrl(payment.DepositAddress)" target="_blank" rel="noreferrer noopener">
+                            <vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" />
+                        </a>
                     }
                     else if (!string.IsNullOrWhiteSpace(payment.PaymentRequest))
                     {
@@ -195,6 +184,10 @@
                 </td>
                 <td>
                     <span class="badge rounded-pill @StatusClass(payment.Status)">@payment.Status</span>
+                    @if (payment.IsSessionOnly)
+                    {
+                        <div class="small text-muted mt-1">Awaiting funds</div>
+                    }
                     @if (!string.IsNullOrWhiteSpace(payment.MakePayStatus))
                     {
                         <div class="small text-muted mt-1">MakePay: @payment.MakePayStatus</div>
@@ -204,7 +197,7 @@
                     <span data-sensitive>@DisplayFormatter.Currency(payment.Amount, payment.Currency)</span>
                     @if (!string.IsNullOrWhiteSpace(payment.SettlementAmount))
                     {
-                        <div class="small text-muted">@payment.SettlementAmount @(payment.BuyAsset ?? payment.Currency)</div>
+                        <div class="small text-muted">@payment.SettlementAmount @Dash(payment.BuyAsset ?? payment.Currency)</div>
                     }
                 </td>
             </tr>
@@ -345,5 +338,40 @@
             BTCPayServer.Data.PaymentStatus.Processing => "bg-warning text-dark",
             _ => "bg-secondary"
         };
+    }
+
+    private static string Dash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ||
+               string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
+            ? "-"
+            : value;
+    }
+
+    private static string FormatAsset(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            string.Equals(value, "null", StringComparison.OrdinalIgnoreCase))
+        {
+            return "-";
+        }
+
+        var asset = value.Trim();
+        if (!asset.Contains('.', StringComparison.Ordinal))
+        {
+            return asset;
+        }
+
+        var parts = asset.Split('.', 2);
+        var chain = parts[0].Trim().ToUpperInvariant();
+        var ticker = parts[1].Split('-', 2)[0].Trim().ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(ticker)
+            ? asset
+            : $"{ticker} on {chain}";
+    }
+
+    private static string DepositExplorerUrl(string address)
+    {
+        return "https://explorer.makecrypto.io/deposit/" + Uri.EscapeDataString(address);
     }
 }

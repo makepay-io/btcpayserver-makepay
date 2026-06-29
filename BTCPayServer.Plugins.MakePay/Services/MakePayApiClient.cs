@@ -444,7 +444,31 @@ public class MakePayApiClient
         request.Headers.UserAgent.ParseAdd("MakePayBTCPayServer/" + MakePayPlugin.PluginVersion);
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var json = string.IsNullOrWhiteSpace(body) ? new JObject() : JToken.Parse(body);
+        JToken json;
+        try
+        {
+            json = string.IsNullOrWhiteSpace(body) ? new JObject() : JToken.Parse(body);
+        }
+        catch (JsonReaderException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "MakePay returned a non-JSON response for {Method} {Url} with HTTP {StatusCode}.",
+                request.Method.Method,
+                request.RequestUri,
+                (int)response.StatusCode);
+
+            json = new JObject
+            {
+                ["error"] = "MakePay checkout is temporarily unavailable. Please retry in a few seconds.",
+                ["retryable"] = true
+            };
+
+            throw new MakePayApiException(
+                response.StatusCode,
+                json["error"]?.Value<string>() ?? "MakePay checkout is temporarily unavailable.",
+                json);
+        }
 
         if (!response.IsSuccessStatusCode)
         {
