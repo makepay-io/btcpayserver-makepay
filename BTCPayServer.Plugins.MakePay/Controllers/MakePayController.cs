@@ -462,6 +462,9 @@ public class MakePayController : Controller
             existing.AllowedPaymentVariancePercent = posted.NormalizedAllowedPaymentVariancePercent();
             existing.AllowedPaymentVarianceFixedUsd = posted.NormalizedAllowedPaymentVarianceFixedUsd();
             existing.MerchantSurchargePercent = posted.NormalizedMerchantSurchargePercent();
+            existing.SettlementMode = posted.NormalizedSettlementMode();
+            existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
+            existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
             existing.SiteUrl = NormalizeAbsoluteUrl(posted.SiteUrl) ?? existing.SiteUrl;
         }
         else if (string.Equals(section, "currencies", StringComparison.OrdinalIgnoreCase))
@@ -470,8 +473,6 @@ public class MakePayController : Controller
         }
         else if (string.Equals(section, "settlement", StringComparison.OrdinalIgnoreCase))
         {
-            existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
-            existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
             existing.ChainAddressesJson = NormalizeChainAddressesJson(posted.ChainAddressesJson);
         }
 

@@ -60,7 +60,7 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
 
         if (!config.IsConfigured)
         {
-            var fallback = config.HasAnonymousSettlement
+            var fallback = config.UsesCustomSettlement()
                 ? default
                 : ReserveBtcAddress(context.Store);
             context.State = new PrepareState
@@ -138,6 +138,11 @@ public class MakePayPaymentMethodHandler : IPaymentMethodHandler
             var sourceAddresses = config.GetChainAddresses();
             if (priorities.Count == 0)
             {
+                if (config.UsesCustomSettlement())
+                {
+                    throw new PaymentMethodUnavailableException("Choose a saved MakePay settlement currency and chain, or use the BTCPay Server settlement wallet.");
+                }
+
                 if (state.ReserveAddress is null)
                 {
                     throw new PaymentMethodUnavailableException("Set a BTC MakePay settlement address or enable a BTC on-chain wallet before using anonymous payment links.");

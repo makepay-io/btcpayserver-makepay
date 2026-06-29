@@ -134,6 +134,54 @@
                     </div>
 
                     <h4 class="mt-5 mb-3">Settlement</h4>
+                    <input asp-for="SettlementCurrency" type="hidden" />
+                    <input asp-for="SettlementPrioritiesJson" type="hidden" />
+                    <input asp-for="ChainAddressesJson" type="hidden" />
+                    @if (Model.IsConfigured)
+                    {
+                        <input asp-for="SettlementMode" type="hidden" />
+                    }
+                    else
+                    {
+                        <div class="form-group" id="makepay-settlement-route" data-url="@Url.Action("Currencies", "MakePay", new { storeId })">
+                            <label class="form-label">Settlement destination</label>
+                            <div class="makepay-settlement-mode-grid">
+                                <label class="makepay-settlement-mode-card border rounded p-3">
+                                    <input class="form-check-input mt-1" type="radio" name="SettlementMode" value="@MakePayPaymentMethodConfig.SettlementModeBtcpay" @(Model.NormalizedSettlementMode() == MakePayPaymentMethodConfig.SettlementModeCustom ? null : "checked") />
+                                    <span class="min-w-0">
+                                        <span class="d-block fw-semibold">BTCPay Server</span>
+                                        <span class="d-block text-muted small mt-1">Reserve a fresh BTC wallet address from this store for each invoice.</span>
+                                    </span>
+                                </label>
+                                <label class="makepay-settlement-mode-card border rounded p-3">
+                                    <input class="form-check-input mt-1" type="radio" name="SettlementMode" value="@MakePayPaymentMethodConfig.SettlementModeCustom" @(Model.NormalizedSettlementMode() == MakePayPaymentMethodConfig.SettlementModeCustom ? "checked" : null) />
+                                    <span class="min-w-0">
+                                        <span class="d-block fw-semibold">Custom MakePay route</span>
+                                        <span class="d-block text-muted small mt-1">Settle to a saved chain address from the MakePay Settlement page.</span>
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div id="makepay-custom-settlement-panel" class="border rounded p-3 mt-3">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="makepay-settlement-currency">Currency</label>
+                                        <select class="form-select" id="makepay-settlement-currency"></select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="makepay-settlement-chain">Chain</label>
+                                        <select class="form-select" id="makepay-settlement-chain"></select>
+                                    </div>
+                                </div>
+                                <div class="form-text mt-3" id="makepay-settlement-route-help">
+                                    Loading saved MakePay settlement routes...
+                                </div>
+                                <div class="mt-3">
+                                    <a asp-action="Settlement" asp-route-storeId="@storeId">Manage settlement addresses</a>
+                                </div>
+                            </div>
+                        </div>
+                    }
                     <div class="alert alert-info makepay-notice mb-0" role="alert" data-makepay-notice="makepay-settlement-summary">
                         <div class="d-flex align-items-start justify-content-between gap-3">
                             <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
@@ -327,6 +375,24 @@
         min-width: 0;
     }
 
+    .makepay-settlement-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: .75rem;
+    }
+
+    .makepay-settlement-mode-card {
+        display: flex;
+        align-items: flex-start;
+        gap: .75rem;
+        cursor: pointer;
+    }
+
+    .makepay-settlement-mode-card:has(input:checked) {
+        border-color: var(--btcpay-primary, #51b543) !important;
+        background: rgba(81, 181, 67, .08);
+    }
+
     .makepay-chain-logo {
         width: 2.75rem;
         height: 2.75rem;
@@ -420,6 +486,328 @@
             notice.remove();
         });
     });
+})();
+</script>
+
+<script>
+(function () {
+    var root = document.getElementById('makepay-settlement-route');
+    var currencyHidden = document.getElementById('SettlementCurrency');
+    var prioritiesHidden = document.getElementById('SettlementPrioritiesJson');
+    var chainHidden = document.getElementById('ChainAddressesJson');
+    var currencySelect = document.getElementById('makepay-settlement-currency');
+    var chainSelect = document.getElementById('makepay-settlement-chain');
+    var help = document.getElementById('makepay-settlement-route-help');
+    var panel = document.getElementById('makepay-custom-settlement-panel');
+    if (!root || !currencyHidden || !prioritiesHidden || !chainHidden || !currencySelect || !chainSelect || !help || !panel) {
+        return;
+    }
+
+    var modeInputs = Array.from(document.querySelectorAll('input[name="SettlementMode"]'));
+    var addresses = parseAddressBook(chainHidden.value);
+    var routesByCurrency = new Map();
+
+    function readText(value) {
+        return String(value || '').trim();
+    }
+
+    function normalizeSymbol(value) {
+        var normalized = readText(value).split('.', 1)[0].toUpperCase();
+        var aliases = {
+            BINANCE: 'BNB',
+            POLYGON: 'POL',
+            TRX: 'TRON'
+        };
+        normalized = aliases[normalized] || normalized;
+        return /^[A-Z0-9_]{2,24}$/.test(normalized) ? normalized : '';
+    }
+
+    function parseAddressBook(value) {
+        var output = new Map();
+        try {
+            var parsed = JSON.parse(String(value || '[]'));
+            if (Array.isArray(parsed)) {
+                parsed.forEach(function (item) {
+                    var chain = normalizeSymbol(item && (item.chain || item.Chain || item.chainCode || item.ChainCode));
+                    var address = readText(item && (item.address || item.Address || item.sourceAddress || item.SourceAddress));
+                    if (chain && address) {
+                        output.set(chain, address);
+                    }
+                });
+            } else if (parsed && typeof parsed === 'object') {
+                Object.keys(parsed).forEach(function (key) {
+                    var value = parsed[key];
+                    var chain = normalizeSymbol(key);
+                    var address = typeof value === 'string'
+                        ? readText(value)
+                        : readText(value && (value.address || value.Address || value.sourceAddress || value.SourceAddress));
+                    if (chain && address) {
+                        output.set(chain, address);
+                    }
+                });
+            }
+        } catch (error) {
+            return output;
+        }
+
+        return output;
+    }
+
+    function tokenIdentifier(token) {
+        return readText(token && (token.identifier || token.assetIdentifier || token.id));
+    }
+
+    function tokenChain(token) {
+        return normalizeSymbol(tokenIdentifier(token)) ||
+            normalizeSymbol(token && (token.chain || token.chainCode || token.network || token.chainId));
+    }
+
+    function tokenCurrency(token) {
+        var identifier = tokenIdentifier(token);
+        var fromIdentifier = identifier.indexOf('.') > -1
+            ? identifier.split('.').slice(1).join('.')
+            : '';
+        return normalizeSymbol(token && (token.ticker || token.symbol || token.currency || fromIdentifier));
+    }
+
+    function tokenLabel(token, currency, chain) {
+        var name = readText(token && token.name);
+        return name && name.toUpperCase() !== currency ? currency + ' - ' + name : currency + ' on ' + chain;
+    }
+
+    function selectedMode() {
+        var selected = modeInputs.find(function (input) { return input.checked; });
+        return selected ? selected.value : '@MakePayPaymentMethodConfig.SettlementModeBtcpay';
+    }
+
+    function setMode(mode) {
+        modeInputs.forEach(function (input) {
+            input.checked = input.value === mode;
+        });
+        updatePanel();
+        writeHidden();
+    }
+
+    function routeKey(route) {
+        return route.currency + ':' + route.chain + ':' + route.asset;
+    }
+
+    function buildRoutes(tokens) {
+        routesByCurrency.clear();
+        tokens.forEach(function (token) {
+            var chain = tokenChain(token);
+            var currency = tokenCurrency(token);
+            var address = addresses.get(chain);
+            if (!chain || !currency || !address) {
+                return;
+            }
+
+            var asset = tokenIdentifier(token) || (chain + '.' + currency);
+            var route = {
+                currency: currency,
+                chain: chain,
+                address: address,
+                asset: asset,
+                label: tokenLabel(token, currency, chain)
+            };
+            var routes = routesByCurrency.get(currency) || [];
+            if (!routes.some(function (existing) { return routeKey(existing) === routeKey(route); })) {
+                routes.push(route);
+            }
+            routesByCurrency.set(currency, routes);
+        });
+
+        routesByCurrency.forEach(function (routes) {
+            routes.sort(function (a, b) {
+                if (a.chain === 'BTC') {
+                    return -1;
+                }
+                if (b.chain === 'BTC') {
+                    return 1;
+                }
+                return a.chain.localeCompare(b.chain);
+            });
+        });
+    }
+
+    function parseCurrentPriority() {
+        try {
+            var parsed = JSON.parse(String(prioritiesHidden.value || '[]'));
+            if (!Array.isArray(parsed) || parsed.length === 0) {
+                return null;
+            }
+
+            var first = parsed[0];
+            return {
+                chain: normalizeSymbol(first && (first.chain || first.Chain || first.chainCode || first.ChainCode)),
+                asset: readText(first && (first.asset || first.Asset || first.assetIdentifier || first.AssetIdentifier))
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function renderCurrencyOptions() {
+        currencySelect.innerHTML = '';
+        Array.from(routesByCurrency.keys()).sort().forEach(function (currency) {
+            var option = document.createElement('option');
+            option.value = currency;
+            option.textContent = currency;
+            currencySelect.appendChild(option);
+        });
+    }
+
+    function findBestRoute(currency, preferred) {
+        var routes = routesByCurrency.get(currency) || [];
+        if (preferred) {
+            var exact = routes.find(function (route) {
+                return route.chain === preferred.chain &&
+                    (!preferred.asset || route.asset === preferred.asset);
+            });
+            if (exact) {
+                return exact;
+            }
+        }
+        return routes[0] || null;
+    }
+
+    function renderChainOptions(preferred) {
+        chainSelect.innerHTML = '';
+        var routes = routesByCurrency.get(currencySelect.value) || [];
+        routes.forEach(function (route) {
+            var option = document.createElement('option');
+            option.value = routeKey(route);
+            option.textContent = route.chain + ' - ' + route.label;
+            option.dataset.currency = route.currency;
+            option.dataset.chain = route.chain;
+            option.dataset.asset = route.asset;
+            option.dataset.address = route.address;
+            chainSelect.appendChild(option);
+        });
+
+        var selected = findBestRoute(currencySelect.value, preferred);
+        if (selected) {
+            chainSelect.value = routeKey(selected);
+        }
+    }
+
+    function selectedRoute() {
+        var option = chainSelect.selectedOptions[0];
+        if (!option) {
+            return null;
+        }
+
+        return {
+            currency: option.dataset.currency,
+            chain: option.dataset.chain,
+            asset: option.dataset.asset,
+            address: option.dataset.address
+        };
+    }
+
+    function truncateAddress(address) {
+        address = readText(address);
+        return address.length > 22 ? address.slice(0, 12) + '...' + address.slice(-8) : address;
+    }
+
+    function updatePanel() {
+        var custom = selectedMode() === '@MakePayPaymentMethodConfig.SettlementModeCustom';
+        panel.classList.toggle('d-none', !custom);
+        currencySelect.disabled = !custom || routesByCurrency.size === 0;
+        chainSelect.disabled = !custom || chainSelect.options.length === 0;
+    }
+
+    function writeHidden() {
+        if (selectedMode() !== '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+            currencyHidden.value = 'BTC';
+            prioritiesHidden.value = '';
+            help.textContent = routesByCurrency.size === 0
+                ? 'Add settlement addresses before selecting a custom MakePay route.'
+                : 'BTCPay Server settlement is selected. A fresh BTC address will be reserved for each invoice.';
+            return;
+        }
+
+        var route = selectedRoute();
+        if (!route) {
+            prioritiesHidden.value = '';
+            help.textContent = 'No saved settlement route is available for the selected currency.';
+            return;
+        }
+
+        currencyHidden.value = route.currency;
+        prioritiesHidden.value = JSON.stringify([{
+            chain: route.chain,
+            address: route.address,
+            asset: route.asset
+        }]);
+        help.textContent = 'MakePay will settle ' + route.currency + ' on ' + route.chain + ' to ' + truncateAddress(route.address) + '.';
+    }
+
+    function initializeRoutes(tokens) {
+        buildRoutes(tokens);
+        renderCurrencyOptions();
+
+        if (routesByCurrency.size === 0) {
+            setMode('@MakePayPaymentMethodConfig.SettlementModeBtcpay');
+            modeInputs.forEach(function (input) {
+                if (input.value === '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+                    input.disabled = true;
+                }
+            });
+            return;
+        }
+
+        var priority = parseCurrentPriority();
+        var initialCurrency = routesByCurrency.has(currencyHidden.value)
+            ? currencyHidden.value
+            : Array.from(routesByCurrency.keys()).sort()[0];
+        if (priority) {
+            routesByCurrency.forEach(function (routes, currency) {
+                if (routes.some(function (route) { return route.chain === priority.chain && (!priority.asset || route.asset === priority.asset); })) {
+                    initialCurrency = currency;
+                }
+            });
+        }
+
+        currencySelect.value = initialCurrency;
+        renderChainOptions(priority);
+        updatePanel();
+        writeHidden();
+    }
+
+    modeInputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+            updatePanel();
+            writeHidden();
+        });
+    });
+
+    currencySelect.addEventListener('change', function () {
+        renderChainOptions(null);
+        writeHidden();
+    });
+
+    chainSelect.addEventListener('change', writeHidden);
+
+    fetch(root.dataset.url, { cache: 'no-store' })
+        .then(function (response) {
+            return response.json().then(function (payload) {
+                if (!response.ok || !Array.isArray(payload)) {
+                    throw new Error(payload && payload.error ? payload.error : 'Unable to load MakePay settlement routes.');
+                }
+                return payload;
+            });
+        })
+        .then(initializeRoutes)
+        .catch(function (error) {
+            setMode('@MakePayPaymentMethodConfig.SettlementModeBtcpay');
+            modeInputs.forEach(function (input) {
+                if (input.value === '@MakePayPaymentMethodConfig.SettlementModeCustom') {
+                    input.disabled = true;
+                }
+            });
+            help.textContent = error && error.message ? error.message : 'Unable to load MakePay settlement routes.';
+        });
 })();
 </script>
 

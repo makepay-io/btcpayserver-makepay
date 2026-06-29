@@ -14,6 +14,8 @@ public class MakePayPaymentMethodConfig
     public const string RefundAddressModePayerEntered = "payer_entered";
     public const string PaymentFeePayerMerchant = "merchant";
     public const string PaymentFeePayerCustomer = "customer";
+    public const string SettlementModeBtcpay = "btcpay";
+    public const string SettlementModeCustom = "custom";
 
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
     public bool Enabled { get; set; } = true;
@@ -29,6 +31,7 @@ public class MakePayPaymentMethodConfig
     public decimal AllowedPaymentVarianceFixedUsd { get; set; }
     public decimal MerchantSurchargePercent { get; set; }
     public string? AllowedAssetIdentifiers { get; set; }
+    public string SettlementMode { get; set; } = SettlementModeBtcpay;
     public string SettlementCurrency { get; set; } = "BTC";
     public string? SettlementPrioritiesJson { get; set; }
     public string? ChainAddressesJson { get; set; }
@@ -83,7 +86,13 @@ public class MakePayPaymentMethodConfig
     public decimal NormalizedAllowedPaymentVariancePercent() => Clamp(AllowedPaymentVariancePercent, 0m, 100m);
     public decimal NormalizedAllowedPaymentVarianceFixedUsd() => Clamp(AllowedPaymentVarianceFixedUsd, 0m, 1000000m);
     public decimal NormalizedMerchantSurchargePercent() => Clamp(MerchantSurchargePercent, -1m, 1m);
+    public string NormalizedSettlementMode() =>
+        string.Equals(SettlementMode, SettlementModeCustom, StringComparison.Ordinal)
+            ? SettlementModeCustom
+            : SettlementModeBtcpay;
     public string NormalizedSettlementCurrency() => NormalizeSymbol(SettlementCurrency) ?? "BTC";
+    public bool UsesCustomSettlement() =>
+        string.Equals(NormalizedSettlementMode(), SettlementModeCustom, StringComparison.Ordinal);
 
     public IReadOnlyList<MakePaySettlementPriority> GetSettlementPriorities()
     {
@@ -104,6 +113,11 @@ public class MakePayPaymentMethodConfig
 
     public IReadOnlyList<MakePaySettlementPriority> ResolveSettlementPriorities()
     {
+        if (!UsesCustomSettlement())
+        {
+            return [];
+        }
+
         var configured = GetSettlementPriorities();
         if (configured.Count > 0)
         {
@@ -160,6 +174,7 @@ public class MakePayPaymentMethodConfig
         AllowedPaymentVariancePercent = NormalizedAllowedPaymentVariancePercent();
         AllowedPaymentVarianceFixedUsd = NormalizedAllowedPaymentVarianceFixedUsd();
         MerchantSurchargePercent = NormalizedMerchantSurchargePercent();
+        SettlementMode = NormalizedSettlementMode();
         SettlementCurrency = NormalizedSettlementCurrency();
         ChainAddressesJson = SerializeChainAddresses(GetChainAddresses());
         SettlementPrioritiesJson = SerializeSettlementPriorities(ResolveSettlementPriorities());

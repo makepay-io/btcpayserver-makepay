@@ -30,7 +30,7 @@
                 Handlers);
         }
 
-        if (config?.IsConfigured == true)
+        if (config is not null)
         {
             status = config.Enabled ? "enabled" : "disabled";
         }
