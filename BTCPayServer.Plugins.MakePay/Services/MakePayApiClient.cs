@@ -249,6 +249,7 @@ public class MakePayApiClient
             ["failureUrl"] = invoiceCheckoutUrl,
             ["expirationTime"] = "72h",
             ["webhookUrl"] = webhookUrl,
+            ["checkoutPolicy"] = BuildAnonymousCheckoutPolicy(config),
             ["metadata"] = new JObject
             {
                 ["source"] = "btcpay-server-anonymous",
@@ -271,6 +272,23 @@ public class MakePayApiClient
         };
         var response = await Send(request, cancellationToken);
         return ParsePaymentLinkResponse(response, true);
+    }
+
+    private static JObject BuildAnonymousCheckoutPolicy(MakePayPaymentMethodConfig config)
+    {
+        var skipQuoteAcceptance = !config.DisplayQuoteApproval;
+        return new JObject
+        {
+            ["paymentFeePayer"] = config.NormalizedPaymentFeePayer(),
+            ["refundAddressMode"] = config.NormalizedRefundAddressMode(),
+            ["skipQuoteAcceptance"] = skipQuoteAcceptance,
+            ["reconciliation"] = new JObject
+            {
+                ["allowedVariancePercent"] = config.NormalizedAllowedPaymentVariancePercent(),
+                ["allowedVarianceFixedUsd"] = config.NormalizedAllowedPaymentVarianceFixedUsd(),
+                ["merchantSurchargePercent"] = config.NormalizedMerchantSurchargePercent()
+            }
+        };
     }
 
     public async Task<JObject?> GetCurrentSession(

@@ -1,0 +1,166 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Data
+@using BTCPayServer.Plugins.MakePay.Models
+@using BTCPayServer.Services
+@inject DisplayFormatter DisplayFormatter
+@model MakePayPaymentDetailsViewModel
+@{
+    ViewData.SetActivePage("MakePayPayments", "MakePay Payment Details", "MakePay");
+    var payment = Model.Payment;
+}
+
+<div class="mb-3">
+    <a asp-action="Payments" asp-route-storeId="@Model.StoreId" class="text-secondary">
+        &lsaquo; Back to payments
+    </a>
+</div>
+
+<div class="sticky-header-setup"></div>
+<div class="sticky-header d-sm-flex align-items-center justify-content-between">
+    <div>
+        <div class="text-uppercase text-muted small fw-semibold mb-1">Payment details</div>
+        <h2 class="mb-0">
+            <vc:truncate-center text="@(!string.IsNullOrWhiteSpace(payment.SessionId) ? payment.SessionId : payment.PaymentId)" classes="truncate-center-id" />
+        </h2>
+    </div>
+    <span class="badge rounded-pill @StatusClass(payment.Status) mt-3 mt-sm-0">@payment.Status</span>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-6">
+        <section class="border rounded p-4 h-100">
+            <h3 class="h4 mb-3">Invoice</h3>
+            <dl class="makepay-detail-list mb-0">
+                <dt>Invoice</dt>
+                <dd>
+                    <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@payment.InvoiceId">
+                        <vc:truncate-center text="@payment.InvoiceId" classes="truncate-center-id" />
+                    </a>
+                </dd>
+                <dt>Order ID</dt>
+                <dd>@ValueOrDash(payment.OrderId)</dd>
+                <dt>Created</dt>
+                <dd>@payment.Created.ToBrowserDate()</dd>
+                <dt>BTCPay amount</dt>
+                <dd data-sensitive>@DisplayFormatter.Currency(payment.Amount, payment.Currency)</dd>
+                <dt>MakePay status</dt>
+                <dd>@ValueOrDash(payment.MakePayStatus)</dd>
+                <dt>Session</dt>
+                <dd><vc:truncate-center text="@payment.SessionId" classes="truncate-center-id" /></dd>
+                <dt>Payment link</dt>
+                <dd><vc:truncate-center text="@payment.PaymentLinkUid" classes="truncate-center-id" /></dd>
+            </dl>
+        </section>
+    </div>
+    <div class="col-xl-6">
+        <section class="border rounded p-4 h-100">
+            <h3 class="h4 mb-3">Payment</h3>
+            <dl class="makepay-detail-list mb-0">
+                <dt>Pay asset</dt>
+                <dd>@ValueOrDash(payment.SellAsset)</dd>
+                <dt>Quoted pay amount</dt>
+                <dd>@ValueOrDash(payment.RequiredSellAmount)</dd>
+                <dt>Settlement asset</dt>
+                <dd>@ValueOrDash(payment.BuyAsset ?? payment.Currency)</dd>
+                <dt>Settlement amount</dt>
+                <dd>@ValueOrDash(payment.SettlementAmount)</dd>
+                <dt>Settlement status</dt>
+                <dd>@ValueOrDash(payment.SettlementClassification)</dd>
+                <dt>Delivery</dt>
+                <dd><vc:truncate-center text="@payment.DeliveryId" classes="truncate-center-id" /></dd>
+            </dl>
+        </section>
+    </div>
+    <div class="col-xl-6">
+        <section class="border rounded p-4 h-100">
+            <h3 class="h4 mb-3">Deposit</h3>
+            <dl class="makepay-detail-list mb-0">
+                <dt>Network</dt>
+                <dd>@ValueOrDash(payment.DepositNetwork)</dd>
+                <dt>Address</dt>
+                <dd><vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" /></dd>
+                <dt>Payment request</dt>
+                <dd><vc:truncate-center text="@payment.PaymentRequest" classes="truncate-center-id" /></dd>
+            </dl>
+        </section>
+    </div>
+    <div class="col-xl-6">
+        <section class="border rounded p-4 h-100">
+            <h3 class="h4 mb-3">Transactions</h3>
+            @if (Model.ExplorerLinks.Any())
+            {
+                <div class="list-group list-group-flush">
+                    @foreach (var link in Model.ExplorerLinks)
+                    {
+                        <a href="@link.Url" target="_blank" rel="noreferrer noopener" class="list-group-item px-0 d-flex align-items-center justify-content-between gap-3">
+                            <span>
+                                <span class="fw-semibold">@link.Label</span>
+                                <span class="d-block small text-muted">
+                                    <vc:truncate-center text="@link.TransactionId" classes="truncate-center-id" />
+                                </span>
+                            </span>
+                            <vc:icon symbol="actions-open-in-new" />
+                        </a>
+                    }
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(payment.TransactionIds))
+            {
+                <vc:truncate-center text="@payment.TransactionIds" classes="truncate-center-id" />
+            }
+            else
+            {
+                <div class="text-muted">No transaction id recorded yet.</div>
+            }
+        </section>
+    </div>
+</div>
+
+<style>
+    .makepay-detail-list {
+        display: grid;
+        grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
+        gap: .75rem 1.25rem;
+    }
+
+    .makepay-detail-list dt {
+        color: var(--btcpay-body-text-muted, #6c757d);
+        font-weight: 400;
+    }
+
+    .makepay-detail-list dd {
+        margin-bottom: 0;
+        min-width: 0;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    @@media (max-width: 575.98px) {
+        .makepay-detail-list {
+            grid-template-columns: 1fr;
+            gap: .25rem;
+        }
+
+        .makepay-detail-list dd {
+            text-align: left;
+            margin-bottom: .75rem;
+        }
+    }
+</style>
+
+@functions {
+    private static string ValueOrDash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "-" : value;
+    }
+
+    private static string StatusClass(PaymentStatus status)
+    {
+        return status switch
+        {
+            PaymentStatus.Settled => "bg-success",
+            PaymentStatus.Processing => "bg-warning text-dark",
+            _ => "bg-secondary"
+        };
+    }
+}

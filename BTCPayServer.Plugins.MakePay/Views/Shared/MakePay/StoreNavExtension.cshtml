@@ -36,10 +36,46 @@
         <a permission="@Policies.CanModifyStoreSettings"
            layout-menu-item="MakePay"
            asp-controller="MakePay"
-           asp-action="Configure"
+           asp-action="Payments"
            asp-route-storeId="@storeId">
             <span class="me-2 btcpay-status btcpay-status--@status"></span>
             <span>MakePay</span>
+        </a>
+    </li>
+    <li class="nav-item nav-item-sub">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="MakePayPayments"
+           asp-controller="MakePay"
+           asp-action="Payments"
+           asp-route-storeId="@storeId">
+            <span>Payments</span>
+        </a>
+    </li>
+    <li class="nav-item nav-item-sub">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="MakePayGeneral"
+           asp-controller="MakePay"
+           asp-action="General"
+           asp-route-storeId="@storeId">
+            <span>General</span>
+        </a>
+    </li>
+    <li class="nav-item nav-item-sub">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="MakePayCurrencies"
+           asp-controller="MakePay"
+           asp-action="AllowedCurrencies"
+           asp-route-storeId="@storeId">
+            <span>Allowed currencies</span>
+        </a>
+    </li>
+    <li class="nav-item nav-item-sub">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="MakePaySettlement"
+           asp-controller="MakePay"
+           asp-action="Settlement"
+           asp-route-storeId="@storeId">
+            <span>Settlement</span>
         </a>
     </li>
 }

@@ -12,6 +12,8 @@ public class MakePayPaymentMethodConfig
 {
     public const string RefundAddressModeMerchantWallet = "merchant_wallet";
     public const string RefundAddressModePayerEntered = "payer_entered";
+    public const string PaymentFeePayerMerchant = "merchant";
+    public const string PaymentFeePayerCustomer = "customer";
 
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
     public bool Enabled { get; set; } = true;
@@ -22,6 +24,10 @@ public class MakePayPaymentMethodConfig
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
     public bool DisplayQuoteApproval { get; set; } = true;
     public string RefundAddressMode { get; set; } = RefundAddressModeMerchantWallet;
+    public string PaymentFeePayer { get; set; } = PaymentFeePayerCustomer;
+    public decimal AllowedPaymentVariancePercent { get; set; } = 1m;
+    public decimal AllowedPaymentVarianceFixedUsd { get; set; }
+    public decimal MerchantSurchargePercent { get; set; }
     public string? AllowedAssetIdentifiers { get; set; }
     public string SettlementCurrency { get; set; } = "BTC";
     public string? SettlementPrioritiesJson { get; set; }
@@ -70,6 +76,13 @@ public class MakePayPaymentMethodConfig
         string.Equals(RefundAddressMode, RefundAddressModePayerEntered, StringComparison.Ordinal)
             ? RefundAddressModePayerEntered
             : RefundAddressModeMerchantWallet;
+    public string NormalizedPaymentFeePayer() =>
+        string.Equals(PaymentFeePayer, PaymentFeePayerMerchant, StringComparison.Ordinal)
+            ? PaymentFeePayerMerchant
+            : PaymentFeePayerCustomer;
+    public decimal NormalizedAllowedPaymentVariancePercent() => Clamp(AllowedPaymentVariancePercent, 0m, 100m);
+    public decimal NormalizedAllowedPaymentVarianceFixedUsd() => Clamp(AllowedPaymentVarianceFixedUsd, 0m, 1000000m);
+    public decimal NormalizedMerchantSurchargePercent() => Clamp(MerchantSurchargePercent, -1m, 1m);
     public string NormalizedSettlementCurrency() => NormalizeSymbol(SettlementCurrency) ?? "BTC";
 
     public IReadOnlyList<MakePaySettlementPriority> GetSettlementPriorities()
@@ -143,6 +156,10 @@ public class MakePayPaymentMethodConfig
 
     public void NormalizeSettlement()
     {
+        PaymentFeePayer = NormalizedPaymentFeePayer();
+        AllowedPaymentVariancePercent = NormalizedAllowedPaymentVariancePercent();
+        AllowedPaymentVarianceFixedUsd = NormalizedAllowedPaymentVarianceFixedUsd();
+        MerchantSurchargePercent = NormalizedMerchantSurchargePercent();
         SettlementCurrency = NormalizedSettlementCurrency();
         ChainAddressesJson = SerializeChainAddresses(GetChainAddresses());
         SettlementPrioritiesJson = SerializeSettlementPriorities(ResolveSettlementPriorities());
@@ -345,6 +362,16 @@ public class MakePayPaymentMethodConfig
         }
 
         return uri.ToString().TrimEnd('/');
+    }
+
+    private static decimal Clamp(decimal value, decimal min, decimal max)
+    {
+        if (value < min)
+        {
+            return min;
+        }
+
+        return value > max ? max : value;
     }
 }
 

@@ -1,7 +1,10 @@
 @using BTCPayServer.Abstractions.Extensions
 @model BTCPayServer.Plugins.MakePay.PaymentHandler.MakePayPaymentMethodConfig
 @{
-    ViewData.SetActivePage("MakePay", "MakePay Settings", "MakePay");
+    var section = ViewData["MakePaySection"]?.ToString() ?? "general";
+    var activePage = ViewData["MakePayActivePage"]?.ToString() ?? "MakePayGeneral";
+    var title = ViewData["MakePayTitle"]?.ToString() ?? "MakePay General";
+    ViewData.SetActivePage(activePage, title, "MakePay");
     var storeId = Context.Request.RouteValues["storeId"]?.ToString();
 }
 
@@ -10,12 +13,15 @@
     <div class="sticky-header d-sm-flex align-items-center justify-content-between">
         <h2 class="mb-0">@ViewData["Title"]</h2>
         <div class="d-flex gap-3 mt-3 mt-sm-0">
-            @if (Model.IsConfigured)
+            @if (section == "general" && Model.IsConfigured)
             {
                 <button name="command" type="submit" value="disconnect" class="btn btn-outline-danger">Disconnect</button>
             }
             <button name="command" type="submit" value="save" class="btn btn-secondary">Save</button>
-            <button name="command" type="submit" value="connect" class="btn btn-primary">Connect MakePay</button>
+            @if (section == "general")
+            {
+                <button name="command" type="submit" value="connect" class="btn btn-primary">Connect MakePay</button>
+            }
         </div>
     </div>
 
@@ -48,26 +54,9 @@
                 </div>
             }
 
-            <ul class="nav nav-tabs mt-4" role="tablist" id="makepay-settings-tabs">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="makepay-general-tab" data-bs-toggle="tab" data-bs-target="#makepay-general" type="button" role="tab" aria-controls="makepay-general" aria-selected="true">
-                        General
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="makepay-currencies-tab" data-bs-toggle="tab" data-bs-target="#makepay-currencies" type="button" role="tab" aria-controls="makepay-currencies" aria-selected="false">
-                        Allowed currencies
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="makepay-settlement-tab" data-bs-toggle="tab" data-bs-target="#makepay-settlement" type="button" role="tab" aria-controls="makepay-settlement" aria-selected="false">
-                        Settlement
-                    </button>
-                </li>
-            </ul>
-
-            <div class="tab-content pt-4">
-                <div class="tab-pane fade show active" id="makepay-general" role="tabpanel" aria-labelledby="makepay-general-tab">
+            <div class="pt-4">
+                @if (section == "general")
+                {
                     <div class="form-group">
                         <div class="d-flex align-items-center">
                             <input id="Enabled" name="Enabled" type="checkbox" value="true" class="btcpay-toggle me-2" @(Model.Enabled ? "checked" : null) />
@@ -137,9 +126,53 @@
                     <div class="alert alert-info mb-0">
                         Connected MakePay payments reserve a fresh BTC receive address from this BTCPay store for each invoice. Anonymous payments use the chain addresses configured in the Settlement tab.
                     </div>
-                </div>
 
-                <div class="tab-pane fade" id="makepay-currencies" role="tabpanel" aria-labelledby="makepay-currencies-tab">
+                    <h4 class="mt-5 mb-3">Anonymous Checkout Policy</h4>
+                    <div class="alert alert-info">
+                        These defaults are sent when the plugin creates anonymous MakePay payment links. Connected MakePay accounts continue to use the policy configured in MakePay.
+                    </div>
+
+                    <div class="form-group">
+                        <label asp-for="PaymentFeePayer" class="form-label">Who pays payment fees</label>
+                        <select asp-for="PaymentFeePayer" class="form-select">
+                            <option value="@MakePayPaymentMethodConfig.PaymentFeePayerMerchant">Merchant</option>
+                            <option value="@MakePayPaymentMethodConfig.PaymentFeePayerCustomer">Customer</option>
+                        </select>
+                        <div class="form-text">
+                            Merchant absorbs service fees. Customer adds service fees to the checkout amount before the payer sends funds.
+                        </div>
+                    </div>
+
+                    <h5 class="mt-4 mb-3">Reconciliation</h5>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label asp-for="AllowedPaymentVariancePercent" class="form-label">Percent threshold</label>
+                            <div class="input-group">
+                                <input asp-for="AllowedPaymentVariancePercent" type="number" min="0" max="100" step="0.01" class="form-control" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">Accepted variance below or above the expected payment amount.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="AllowedPaymentVarianceFixedUsd" class="form-label">Fixed threshold</label>
+                            <div class="input-group">
+                                <input asp-for="AllowedPaymentVarianceFixedUsd" type="number" min="0" step="0.01" class="form-control" />
+                                <span class="input-group-text">USD</span>
+                            </div>
+                            <div class="form-text">Additional fixed USD underpayment variance.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="MerchantSurchargePercent" class="form-label">Merchant surcharge fee</label>
+                            <div class="input-group">
+                                <input asp-for="MerchantSurchargePercent" type="number" min="-1" max="1" step="0.01" class="form-control" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">Use a value from -1% to 1%.</div>
+                        </div>
+                    </div>
+                }
+                else if (section == "currencies")
+                {
                     <div class="form-group">
                         <input asp-for="AllowedAssetIdentifiers" type="hidden" />
                         <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
@@ -164,9 +197,9 @@
                             With Allow all enabled, new MakePay-supported currencies are automatically available.
                         </div>
                     </div>
-                </div>
-
-                <div class="tab-pane fade" id="makepay-settlement" role="tabpanel" aria-labelledby="makepay-settlement-tab">
+                }
+                else if (section == "settlement")
+                {
                     <input asp-for="SettlementCurrency" type="hidden" />
                     <input asp-for="SettlementPrioritiesJson" type="hidden" />
                     <input asp-for="ChainAddressesJson" type="hidden" />
@@ -222,7 +255,7 @@
                             <div class="border rounded p-3 text-muted">Loading chains...</div>
                         </div>
                     }
-                </div>
+                }
             </div>
         </div>
     </div>
@@ -269,67 +302,6 @@
         color: #ff6b6b !important;
     }
 </style>
-
-<script>
-(function () {
-    var tabs = document.getElementById('makepay-settings-tabs');
-    var form = document.querySelector('form[method="post"]');
-    if (!tabs || !form || typeof bootstrap === 'undefined' || !bootstrap.Tab) {
-        return;
-    }
-
-    var storageKey = 'makepay-settings-active-tab-' + @Json.Serialize(storeId ?? string.Empty);
-    var allowedTargets = Array.from(tabs.querySelectorAll('[data-bs-toggle="tab"]'))
-        .map(function (tab) { return tab.getAttribute('data-bs-target'); })
-        .filter(Boolean);
-
-    function activeTarget() {
-        var active = tabs.querySelector('[data-bs-toggle="tab"].active');
-        return active ? active.getAttribute('data-bs-target') : '';
-    }
-
-    function remember(target) {
-        if (!target || allowedTargets.indexOf(target) === -1) {
-            return;
-        }
-
-        try {
-            window.sessionStorage.setItem(storageKey, target);
-        } catch (error) {
-            return;
-        }
-    }
-
-    function recall() {
-        var hash = window.location.hash;
-        if (hash && allowedTargets.indexOf(hash) !== -1) {
-            return hash;
-        }
-
-        try {
-            return window.sessionStorage.getItem(storageKey) || '';
-        } catch (error) {
-            return '';
-        }
-    }
-
-    tabs.addEventListener('shown.bs.tab', function (event) {
-        remember(event.target && event.target.getAttribute('data-bs-target'));
-    });
-
-    form.addEventListener('submit', function () {
-        remember(activeTarget());
-    });
-
-    var target = recall();
-    if (target && allowedTargets.indexOf(target) !== -1) {
-        var tab = tabs.querySelector('[data-bs-target="' + target + '"]');
-        if (tab) {
-            bootstrap.Tab.getOrCreateInstance(tab).show();
-        }
-    }
-})();
-</script>
 
 <script>
 (function () {

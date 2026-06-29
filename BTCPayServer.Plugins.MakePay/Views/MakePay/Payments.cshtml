@@ -1,0 +1,171 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.MakePay.Models
+@using BTCPayServer.Services
+@inject DisplayFormatter DisplayFormatter
+@model MakePayPaymentsViewModel
+@{
+    ViewData.SetActivePage("MakePayPayments", "MakePay Payments", "MakePay");
+}
+
+<div class="sticky-header-setup"></div>
+<div class="sticky-header d-sm-flex align-items-center justify-content-between">
+    <h2 class="mb-0">@ViewData["Title"]</h2>
+    <form method="get" class="d-flex gap-2 mt-3 mt-sm-0">
+        <input name="searchTerm" value="@Model.SearchTerm" class="form-control" type="search" placeholder="Search invoice, session, address, tx" />
+        <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+</div>
+
+<partial name="_StatusMessage" />
+
+<div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+        <tr>
+            <th class="text-nowrap">Date</th>
+            <th>Invoice</th>
+            <th>Session</th>
+            <th>Asset</th>
+            <th>Deposit</th>
+            <th>Transaction</th>
+            <th>Status</th>
+            <th class="text-end">Amount</th>
+        </tr>
+        </thead>
+        <tbody>
+        @if (!Model.Payments.Any())
+        {
+            <tr>
+                <td colspan="8" class="text-muted py-4">
+                    No MakePay payments found.
+                </td>
+            </tr>
+        }
+        @foreach (var payment in Model.Payments)
+        {
+            <tr>
+                <td class="text-nowrap">
+                    @payment.Created.ToBrowserDate()
+                </td>
+                <td>
+                    <div>
+                        <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@payment.InvoiceId">
+                            <vc:truncate-center text="@payment.InvoiceId" classes="truncate-center-id" />
+                        </a>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(payment.OrderId))
+                    {
+                        <div class="small text-muted text-break">@payment.OrderId</div>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(payment.SessionId))
+                    {
+                        <a asp-action="PaymentDetails" asp-route-storeId="@Model.StoreId" asp-route-paymentId="@payment.PaymentId">
+                            <vc:truncate-center text="@payment.SessionId" classes="truncate-center-id" />
+                        </a>
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(payment.PaymentLinkUid))
+                    {
+                        <div class="small text-muted">
+                            Link <vc:truncate-center text="@payment.PaymentLinkUid" classes="truncate-center-id" />
+                        </div>
+                    }
+                </td>
+                <td>
+                    <div>@(payment.SellAsset ?? "Unknown")</div>
+                    @if (!string.IsNullOrWhiteSpace(payment.RequiredSellAmount))
+                    {
+                        <div class="small text-muted text-nowrap">@payment.RequiredSellAmount</div>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(payment.DepositAddress))
+                    {
+                        <vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" />
+                    }
+                    else if (!string.IsNullOrWhiteSpace(payment.PaymentRequest))
+                    {
+                        <vc:truncate-center text="@payment.PaymentRequest" classes="truncate-center-id" />
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(payment.TransactionIds))
+                    {
+                        <vc:truncate-center text="@payment.TransactionIds" classes="truncate-center-id" />
+                    }
+                    else if (!string.IsNullOrWhiteSpace(payment.DeliveryId))
+                    {
+                        <span class="small text-muted">Delivery</span>
+                        <vc:truncate-center text="@payment.DeliveryId" classes="truncate-center-id" />
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                </td>
+                <td>
+                    <span class="badge rounded-pill @StatusClass(payment.Status)">@payment.Status</span>
+                    @if (!string.IsNullOrWhiteSpace(payment.MakePayStatus))
+                    {
+                        <div class="small text-muted mt-1">MakePay: @payment.MakePayStatus</div>
+                    }
+                </td>
+                <td class="text-end text-nowrap">
+                    <span data-sensitive>@DisplayFormatter.Currency(payment.Amount, payment.Currency)</span>
+                    @if (!string.IsNullOrWhiteSpace(payment.SettlementAmount))
+                    {
+                        <div class="small text-muted">@payment.SettlementAmount @(payment.BuyAsset ?? payment.Currency)</div>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+@if (Model.Skip > 0 || Model.HasMore)
+{
+    <div class="d-flex justify-content-between align-items-center mt-4">
+        <div>
+            @if (Model.Skip > 0)
+            {
+                <a class="btn btn-secondary"
+                   asp-action="Payments"
+                   asp-route-storeId="@Model.StoreId"
+                   asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-skip="@Math.Max(0, Model.Skip - Model.Take)">Previous</a>
+            }
+        </div>
+        <div>
+            @if (Model.HasMore)
+            {
+                <a class="btn btn-secondary"
+                   asp-action="Payments"
+                   asp-route-storeId="@Model.StoreId"
+                   asp-route-searchTerm="@Model.SearchTerm"
+                   asp-route-skip="@(Model.Skip + Model.Take)">Next</a>
+            }
+        </div>
+    </div>
+}
+
+@functions {
+    private static string StatusClass(BTCPayServer.Data.PaymentStatus status)
+    {
+        return status switch
+        {
+            BTCPayServer.Data.PaymentStatus.Settled => "bg-success",
+            BTCPayServer.Data.PaymentStatus.Processing => "bg-warning text-dark",
+            _ => "bg-secondary"
+        };
+    }
+}
