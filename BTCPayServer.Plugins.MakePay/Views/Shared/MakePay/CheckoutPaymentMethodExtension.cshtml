@@ -167,7 +167,7 @@
                             class="makepay-option"
                             v-on:click="selectNetwork(token.identifier)">
                         <span class="d-flex align-items-center gap-3">
-                            <img v-if="token.logoURI" :src="token.logoURI" alt="" class="makepay-token-icon" />
+                            <img v-if="token.chainLogoURI" :src="token.chainLogoURI" alt="" class="makepay-token-icon" />
                             <span v-else class="makepay-token-fallback">{{ token.chain.slice(0, 2) }}</span>
                             <span class="flex-grow-1 min-w-0">
                                 <span class="d-block fw-semibold">{{ token.chain }} network</span>
@@ -398,13 +398,19 @@
             },
             assetGroups: function () {
                 var groups = new Map();
+                var names = {
+                    USDC: 'USD Coin',
+                    USDT: 'Tether USD'
+                };
+
                 this.tokens.forEach(function (token) {
                     var key = (token.ticker || token.symbol || token.identifier).toUpperCase();
+                    var name = names[key] || token.name || key;
                     if (!groups.has(key)) {
                         groups.set(key, {
                             key: key,
                             ticker: key,
-                            name: token.name || key,
+                            name: name,
                             logoURI: token.logoURI,
                             networks: []
                         });
@@ -414,6 +420,9 @@
                     group.networks.push(token);
                     if (!group.logoURI && token.logoURI) {
                         group.logoURI = token.logoURI;
+                    }
+                    if (names[key]) {
+                        group.name = names[key];
                     }
                     if (group.name === key && token.name) {
                         group.name = token.name;
@@ -572,6 +581,17 @@
                                 chainId: String(token.chainId || ''),
                                 network: String(token.network || token.chain || token.chainId || ''),
                                 logoURI: String(token.logoURI || token.logoUrl || token.icon || ''),
+                                chainLogoURI: String(
+                                    token.chainLogoURI ||
+                                    token.chainLogoUrl ||
+                                    token.chainIconURI ||
+                                    token.chainIconUrl ||
+                                    token.networkLogoURI ||
+                                    token.networkLogoUrl ||
+                                    token.networkIconURI ||
+                                    token.networkIconUrl ||
+                                    ''
+                                ),
                                 requiresPayerRefundAddress:
                                     token.requiresPayerRefundAddress === true ||
                                     token.requires_payer_refund_address === true
