@@ -531,8 +531,7 @@
                 self.nowMs = Date.now();
                 self.autoRefreshQuoteIfNeeded();
             }, 1000);
-            this.restoreExistingSession();
-            this.loadTokens();
+            this.initializeCheckout();
         },
         beforeDestroy: function () {
             this.stopPolling();
@@ -542,6 +541,15 @@
             }
         },
         methods: {
+            initializeCheckout: async function () {
+                var restored = await this.restoreExistingSession(false);
+                if (restored && this.paymentStarted) {
+                    this.error = '';
+                    return;
+                }
+
+                await this.loadTokens();
+            },
             loadTokens: async function () {
                 this.error = '';
                 this.isBusy = true;
