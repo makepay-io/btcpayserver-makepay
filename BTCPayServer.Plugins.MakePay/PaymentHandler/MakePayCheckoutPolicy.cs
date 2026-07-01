@@ -52,6 +52,25 @@ public static class MakePayCheckoutPolicy
     public static bool IsValidPaymentLinkUid(string? paymentLinkUid) =>
         IsValidSessionId(paymentLinkUid);
 
+    public static string? ValidateAllowedAsset(MakePayPromptDetails prompt, JToken body)
+    {
+        if (body is not JObject payload)
+        {
+            return "Expected a JSON object.";
+        }
+
+        var allowedAssets = ParseAllowedAssets(prompt.AllowedAssetIdentifiers);
+        if (allowedAssets.Count == 0)
+        {
+            return null;
+        }
+
+        var sellAsset = NormalizeAssetKey(ReadString(payload, "sellAsset"));
+        return sellAsset is not null && allowedAssets.Contains(sellAsset)
+            ? null
+            : "Selected asset is not allowed for this invoice.";
+    }
+
     public static JToken ApplyCheckoutRequestPolicy(
         MakePayPaymentMethodConfig config,
         MakePayPromptDetails prompt,
@@ -215,4 +234,33 @@ public static class MakePayCheckoutPolicy
         payload[propertyName]?.Type == JTokenType.String
             ? payload[propertyName]?.Value<string>()
             : null;
+
+    private static HashSet<string> ParseAllowedAssets(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        return value
+            .Split([',', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeAssetKey)
+            .Where(asset => asset is not null)
+            .Select(asset => asset!)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static string? NormalizeAssetKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Regex.Replace(
+                value.Trim().ToUpperInvariant(),
+                "\\s*([-.:])\\s*",
+                "$1")
+            .Trim();
+    }
 }
