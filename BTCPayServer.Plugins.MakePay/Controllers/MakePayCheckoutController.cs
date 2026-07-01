@@ -100,6 +100,12 @@ public class MakePayCheckoutController : ControllerBase
             return BadRequest(new { error = validationError });
         }
 
+        var assetError = MakePayCheckoutPolicy.ValidateAllowedAsset(resolved.Prompt, body);
+        if (assetError is not null)
+        {
+            return BadRequest(new { error = assetError });
+        }
+
         var paymentBody = MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(
             resolved.Config,
             resolved.Prompt,
@@ -133,6 +139,12 @@ public class MakePayCheckoutController : ControllerBase
         if (validationError is not null)
         {
             return BadRequest(new { error = validationError });
+        }
+
+        var assetError = MakePayCheckoutPolicy.ValidateAllowedAsset(resolved.Prompt, body);
+        if (assetError is not null)
+        {
+            return BadRequest(new { error = assetError });
         }
 
         var paymentBody = MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(

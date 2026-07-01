@@ -54,7 +54,7 @@ Anonymous mode uses the same `POST /api/partner/v1/makepay/payment-links` route 
 
 ## Checkout Settings
 
-- Allowed currencies are shown to payers as a currency-first picker, then a network picker for the selected currency.
+- Allowed currencies are shown to payers as a currency-first picker, then a network picker for the selected currency. Public checkout API routes also reject `quote` and `start` requests whose `sellAsset` is not in the invoice's configured MakePay allowed-currency list.
 - `Quote approval` is enabled by default. Disable it to skip the intermediate quote confirmation card and start the MakePay payment immediately after a valid quote.
 - `Refund address collection` is enforced server-side. In merchant-wallet mode, public checkout API requests cannot provide their own `refundAddress` or `sourceAddress`; the plugin overwrites those fields with the configured merchant wallet address for the selected pay-in chain, or removes them when no merchant address matches.
 - Public checkout API routes are rate-limited with BTCPay Server's public invoice limiter, validate bounded request fields before proxying to MakePay, and are only available while the BTCPay invoice is `New` and unexpired.

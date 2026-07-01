@@ -223,6 +223,41 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
+    public void EmptyAllowedAssetsAllowsAnyValidPaymentAsset()
+    {
+        var prompt = new MakePayPromptDetails();
+        var payload = JObject.Parse("""{ "sellAsset": "ETH.USDT-0xdac17f958d2ee523a2206206994597c13d831ec7" }""");
+
+        Assert.Null(MakePayCheckoutPolicy.ValidateAllowedAsset(prompt, payload));
+    }
+
+    [Fact]
+    public void AllowedAssetsPermitConfiguredAssetIdentifier()
+    {
+        var prompt = new MakePayPromptDetails
+        {
+            AllowedAssetIdentifiers = "BTC.BTC\nETH.USDT-0xdac17f958d2ee523a2206206994597c13d831ec7"
+        };
+        var payload = JObject.Parse("""{ "sellAsset": " eth.usdt - 0xdac17f958d2ee523a2206206994597c13d831ec7 " }""");
+
+        Assert.Null(MakePayCheckoutPolicy.ValidateAllowedAsset(prompt, payload));
+    }
+
+    [Fact]
+    public void AllowedAssetsRejectUnconfiguredAssetIdentifier()
+    {
+        var prompt = new MakePayPromptDetails
+        {
+            AllowedAssetIdentifiers = "BTC.BTC\nETH.USDT-0xdac17f958d2ee523a2206206994597c13d831ec7"
+        };
+        var payload = JObject.Parse("""{ "sellAsset": "BSC.USDT-0x55d398326f99059ff775485246999027b3197955" }""");
+
+        Assert.Equal(
+            "Selected asset is not allowed for this invoice.",
+            MakePayCheckoutPolicy.ValidateAllowedAsset(prompt, payload));
+    }
+
+    [Fact]
     public void StatusSessionIdIsBounded()
     {
         Assert.True(MakePayCheckoutPolicy.IsValidSessionId("session_123"));
