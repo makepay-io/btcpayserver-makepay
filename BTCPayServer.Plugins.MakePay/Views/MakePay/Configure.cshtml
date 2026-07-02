@@ -16,8 +16,8 @@
     var helpBody = section switch
     {
         "currencies" => "Choose which MakePay assets and networks customers can use at checkout. Leaving everything enabled gives payers the broadest choice, while disabling assets narrows checkout to the routes you want to support.",
-        "settlement" => "Save merchant-controlled chain addresses for anonymous MakePay links. These addresses are used for merchant refund routing on the selected pay-in network and can also be selected as custom settlement routes.",
-        _ => "Configure how MakePay appears at checkout, whether quotes require review, how receipts are handled, how refunds are routed, and how anonymous MakePay links settle."
+        "settlement" => "Save merchant-controlled chain addresses for anonymous MakePay links. These addresses are used as preferred merchant refund wallets on matching pay-in networks and can also be selected as custom settlement routes.",
+        _ => "Configure how MakePay appears at checkout, whether quotes require review, how receipts are handled, which refund destination is preferred, and how anonymous MakePay links settle."
     };
 }
 
@@ -158,13 +158,13 @@
                     <h4 class="mt-5 mb-3">Refunds</h4>
 
                     <div class="form-group">
-                        <label asp-for="RefundAddressMode" class="form-label">Refund address collection</label>
+                        <label asp-for="RefundAddressMode" class="form-label">Preferred refund address</label>
                         <select asp-for="RefundAddressMode" class="form-select">
-                            <option value="@MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet">Merchant wallets</option>
+                            <option value="@MakePayPaymentMethodConfig.RefundAddressModeMerchantWallet">Prefer merchant wallets</option>
                             <option value="@MakePayPaymentMethodConfig.RefundAddressModePayerEntered">Ask payer</option>
                         </select>
                         <div class="form-text">
-                            Merchant wallets uses saved MakePay refund wallets. Ask payer collects a refund address during checkout for assets that need one.
+                            Prefer merchant wallets uses saved MakePay refund wallets when the selected pay-in chain has one. If no merchant refund wallet is saved for that chain, checkout asks the payer for a refund address. Ask payer always collects the payer refund address during checkout; merchant wallets are then used only for settlement/source-address routing.
                         </div>
                     </div>
 
@@ -364,7 +364,7 @@
                                 </button>
                             </div>
                             <div class="makepay-notice-body mt-2">
-                                Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses for merchant refund routing on the selected pay-in network; the BTC address is also used as the default anonymous settlement route.
+                                Anonymous MakePay payment links are not attached to a MakePay workspace, so the plugin sends merchant-controlled chain addresses when it creates each invoice link. MakePay uses these addresses as preferred merchant refund wallets on matching pay-in networks; the BTC address is also used as the default anonymous settlement route.
                             </div>
                         </div>
 

@@ -67,7 +67,7 @@ public class MakePayCheckoutPolicyTests
     }
 
     [Fact]
-    public void MerchantWalletModeKeepsPayerFallbackWhenNoMerchantAddressMatchesAsset()
+    public void MerchantWalletModeAcceptsPayerFallbackWhenNoMerchantAddressMatchesAsset()
     {
         var config = new MakePayPaymentMethodConfig();
         var prompt = new MakePayPromptDetails
