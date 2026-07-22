@@ -4,7 +4,8 @@ MakePay is a decentralized BTCPay Server payment plugin that adds a native
 **Other currencies** payment method to BTCPay checkout. It lets customers pay a
 BTCPay invoice with supported coins, tokens, and chains by creating a
 decentralized swap through partners such as Chainflip, NEAR, Flashnet, and
-others.
+others. Version 1.5 also offers the decentralized Cash App fiat on-ramp to
+eligible US payers for customer debits up to USD 950.
 
 The simplest setup does not require a MakePay account. Configure settlement
 addresses directly in BTCPay Server, and the plugin creates anonymous one-time
@@ -50,8 +51,8 @@ show a new **MakePay** item with **Payments**, **Settings**,
   routes in the plugin.
 - Let customers pay BTCPay invoices with MakePay-supported coins, tokens, and
   chains.
-- Keep the customer inside the native BTCPay invoice checkout instead of
-  redirecting to a separate checkout page.
+- Keep crypto payments inside the native BTCPay invoice checkout and hand Cash
+  App payments to the hosted MakePay checkout in the same tab.
 - Create decentralized swap payments through MakePay partners such as Chainflip,
   NEAR, Flashnet, and others.
 - Connect a BTCPay store to MakePay with native OAuth as an optional fallback to
@@ -80,6 +81,9 @@ You can start without connecting a MakePay account:
 3. Open **Settlement** and save the settlement addresses you want MakePay to use.
 4. Open **Allowed currencies** and choose which pay-in assets customers can use.
 5. Return to **Settings**, enable MakePay, and save.
+
+The anonymous **Decentralized fiat on-ramp (Cash App)** option is enabled by
+default. Changing it affects payment links created for new invoices only.
 
 With this setup, each BTCPay invoice creates an anonymous one-time MakePay
 payment link. No OAuth tokens or MakePay account connection are required.
@@ -125,6 +129,7 @@ Review **Store > Wallets > MakePay > Settings**.
 | Ask customer for receipt email | Asks the payer for a receipt email before payment.                                                                                         |
 | Default receipt email          | Used for MakePay receipts when customer email collection is disabled.                                                                      |
 | Preferred refund address       | Prefers saved merchant wallets when available, or asks the payer for a refund address when the selected pay-in chain needs one.            |
+| Decentralized fiat on-ramp      | For anonymous mode, offers Cash App to eligible US payers for customer debits up to USD 950. Connected stores manage this in MakePay.       |
 | Settlement destination         | In anonymous mode, choose the BTCPay Server BTC wallet or a custom saved MakePay route.                                                    |
 | Who pays payment fees          | For anonymous mode, choose whether merchant or customer pays service fees.                                                                 |
 | Reconciliation thresholds      | For anonymous mode, configure percent/fixed variance and optional merchant surcharge settings sent to MakePay.                             |
@@ -164,12 +169,15 @@ that invoice:
    information.
 4. BTCPay checkout shows **Other currencies** as a payment method next to the
    store's normal BTC payment method.
-5. The customer chooses a MakePay-supported pay-in currency and network,
-   receives a live quote, and pays from the displayed address or QR code.
+5. The customer either chooses a MakePay-supported crypto asset and network or
+   opens Cash App checkout on MakePay, receives a live quote, and completes the
+   payment.
 
-The customer stays in the native BTCPay invoice checkout. The plugin uses
-MakePay public payment-link APIs for available assets, quotes, payment start,
-payment address generation, QR display, status polling, and quote refresh.
+Crypto stays in the native BTCPay invoice checkout. Cash App opens the hosted
+MakePay payment link in the same tab and returns to the BTCPay invoice. The
+plugin uses MakePay public payment-link APIs for capabilities, available
+assets, quotes, payment start, payment address generation, QR display, status
+polling, and quote refresh.
 
 ## Settlement and Accounting
 

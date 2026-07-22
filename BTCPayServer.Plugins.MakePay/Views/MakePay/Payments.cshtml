@@ -105,6 +105,7 @@
         <tr>
             <th class="text-nowrap">Date</th>
             <th>Invoice</th>
+            <th>Method</th>
             <th>Asset</th>
             <th>Deposit</th>
             <th>Transaction</th>
@@ -116,7 +117,7 @@
         @if (!Model.Payments.Any())
         {
             <tr>
-                <td colspan="7" class="text-muted py-4">
+                <td colspan="8" class="text-muted py-4">
                     No MakePay payments found.
                 </td>
             </tr>
@@ -144,6 +145,7 @@
                         </div>
                     }
                 </td>
+                <td>@(payment.PaymentMethod == "cash_app_onramp" ? "Cash App" : "Crypto")</td>
                 <td>
                     <div>@FormatAsset(payment.SellAsset)</div>
                     @if (!string.IsNullOrWhiteSpace(payment.RequiredSellAmount))

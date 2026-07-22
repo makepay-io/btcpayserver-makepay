@@ -25,6 +25,8 @@ public class MakePayPaymentMethodConfig
     public string? DefaultReceiptEmail { get; set; }
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
     public bool DisplayQuoteApproval { get; set; } = true;
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+    public bool AnonymousFiatOnRampEnabled { get; set; } = true;
     public string RefundAddressMode { get; set; } = RefundAddressModeMerchantWallet;
     public string PaymentFeePayer { get; set; } = PaymentFeePayerCustomer;
     public decimal AllowedPaymentVariancePercent { get; set; } = 1m;
@@ -51,6 +53,12 @@ public class MakePayPaymentMethodConfig
     public long OAuthExpiresAt { get; set; }
     public string? LastError { get; set; }
     public bool SecretsProtected { get; set; }
+
+    [JsonIgnore]
+    public bool? ConnectedCashAppEnabled { get; set; }
+
+    [JsonIgnore]
+    public string ConnectedPaymentSettingsUrl { get; set; } = "https://www.makecrypto.io/home";
 
     [JsonIgnore]
     public bool IsConfigured =>

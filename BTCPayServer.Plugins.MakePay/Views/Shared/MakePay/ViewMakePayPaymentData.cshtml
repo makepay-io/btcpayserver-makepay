@@ -30,6 +30,7 @@
                 <thead>
                 <tr>
                     <th class="w-175px">Session</th>
+                    <th class="w-150px">Method</th>
                     <th class="w-150px">Asset</th>
                     <th class="w-150px">Status</th>
                 </tr>
@@ -39,6 +40,7 @@
                 {
                     <tr>
                         <td><vc:truncate-center text="@payment!.SessionId" classes="truncate-center-id" /></td>
+                        <td>@(payment.PaymentMethod == "cash_app_onramp" ? "Cash App" : "Crypto")</td>
                         <td>@(payment.SellAsset ?? "Unknown")</td>
                         <td>@payment.Status</td>
                     </tr>

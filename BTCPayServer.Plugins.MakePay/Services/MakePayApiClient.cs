@@ -275,11 +275,14 @@ public class MakePayApiClient
         return ParsePaymentLinkResponse(response, true);
     }
 
-    private static JObject BuildAnonymousCheckoutPolicy(MakePayPaymentMethodConfig config)
+    internal static JObject BuildAnonymousCheckoutPolicy(MakePayPaymentMethodConfig config)
     {
         var skipQuoteAcceptance = !config.DisplayQuoteApproval;
         return new JObject
         {
+            ["allowedPaymentMethods"] = config.AnonymousFiatOnRampEnabled
+                ? new JArray("crypto", "cash_app_onramp")
+                : new JArray("crypto"),
             ["paymentFeePayer"] = config.NormalizedPaymentFeePayer(),
             ["refundAddressMode"] = config.NormalizedRefundAddressMode(),
             ["skipQuoteAcceptance"] = skipQuoteAcceptance,
@@ -290,6 +293,15 @@ public class MakePayApiClient
                 ["merchantSurchargePercent"] = config.NormalizedMerchantSurchargePercent()
             }
         };
+    }
+
+    public async Task<JObject> GetMerchantSettings(
+        MakePayPaymentMethodConfig config,
+        CancellationToken cancellationToken = default)
+    {
+        var url = config.NormalizedApiBaseUrl() + "/api/partner/v1/makepay/branding";
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        return await SendAuthenticated(config, request, cancellationToken);
     }
 
     public async Task<JObject?> GetCurrentSession(

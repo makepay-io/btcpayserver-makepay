@@ -232,8 +232,10 @@
                         </div>
                     </div>
 
-                    <h4 class="mt-5 mb-3">Anonymous Checkout Policy</h4>
-                    <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-policy">
+                    @if (!Model.IsConfigured)
+                    {
+                        <h4 class="mt-5 mb-3">Anonymous Checkout Policy</h4>
+                        <div class="alert alert-info makepay-notice" role="alert" data-makepay-notice="makepay-anonymous-policy">
                         <div class="d-flex align-items-start justify-content-between gap-3">
                             <button type="button" class="btn btn-link alert-link d-inline-flex align-items-center gap-2 p-0 text-start" data-role="makepay-notice-toggle" aria-expanded="true">
                                 <vc:icon symbol="caret-down" />
@@ -246,9 +248,20 @@
                         <div class="makepay-notice-body mt-2">
                             These defaults are sent when the plugin creates anonymous MakePay payment links. Connected MakePay accounts continue to use the policy configured in MakePay.
                         </div>
-                    </div>
+                        </div>
 
-                    <div class="form-group">
+                        <div class="form-group">
+                            <div class="d-flex align-items-center">
+                                <input id="AnonymousFiatOnRampEnabled" name="AnonymousFiatOnRampEnabled" type="checkbox" value="true" class="btcpay-toggle me-2" @(Model.AnonymousFiatOnRampEnabled ? "checked" : null) />
+                                <input name="AnonymousFiatOnRampEnabled" type="hidden" value="false" />
+                                <label for="AnonymousFiatOnRampEnabled" class="form-label mb-0">Decentralized fiat on-ramp (Cash App)</label>
+                            </div>
+                            <div class="form-text">
+                                Offer Cash App to eligible US payers on newly created anonymous invoices. Cash App payments are limited to USD 950 and settle to the configured crypto destination.
+                            </div>
+                        </div>
+
+                        <div class="form-group">
                         <label asp-for="PaymentFeePayer" class="form-label">Who pays payment fees</label>
                         <select asp-for="PaymentFeePayer" class="form-select">
                             <option value="@MakePayPaymentMethodConfig.PaymentFeePayerMerchant">Merchant</option>
@@ -257,10 +270,10 @@
                         <div class="form-text">
                             Merchant absorbs service fees. Customer adds service fees to the checkout amount before the payer sends funds.
                         </div>
-                    </div>
+                        </div>
 
-                    <h5 class="mt-4 mb-3">Reconciliation</h5>
-                    <div class="row g-3">
+                        <h5 class="mt-4 mb-3">Reconciliation</h5>
+                        <div class="row g-3">
                         <div class="col-md-4">
                             <label asp-for="AllowedPaymentVariancePercent" class="form-label">Percent threshold</label>
                             <div class="input-group">
@@ -285,7 +298,36 @@
                             </div>
                             <div class="form-text">Use a value from -1% to 1%.</div>
                         </div>
-                    </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <h4 class="mt-5 mb-3">Payment methods</h4>
+                        <div class="border rounded p-3">
+                            <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+                                <div>
+                                    <div class="fw-semibold">Cash App fiat on-ramp</div>
+                                    <div class="text-muted small">
+                                        @if (Model.ConnectedCashAppEnabled == true)
+                                        {
+                                            <span>Enabled in MakePay Payment Settings.</span>
+                                        }
+                                        else if (Model.ConnectedCashAppEnabled == false)
+                                        {
+                                            <span>Disabled in MakePay Payment Settings.</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Current MakePay status is temporarily unavailable.</span>
+                                        }
+                                    </div>
+                                </div>
+                                <a class="btn btn-outline-primary" href="@Model.ConnectedPaymentSettingsUrl" target="_blank" rel="noreferrer noopener">
+                                    Manage in MakePay Payment Settings
+                                </a>
+                            </div>
+                        </div>
+                    }
                 }
                 else if (section == "currencies")
                 {

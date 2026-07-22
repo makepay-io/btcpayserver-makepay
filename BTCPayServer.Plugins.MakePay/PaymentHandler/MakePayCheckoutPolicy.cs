@@ -37,6 +37,13 @@ public static class MakePayCheckoutPolicy
             return "Invalid sellAsset.";
         }
 
+        var paymentMethod = ReadString(payload, "paymentMethod")?.Trim();
+        if (!string.IsNullOrEmpty(paymentMethod) &&
+            !string.Equals(paymentMethod, "crypto", StringComparison.Ordinal))
+        {
+            return "Invalid paymentMethod.";
+        }
+
         return ValidateOptionalString(payload, "paymentMethod", 32) ??
                ValidateOptionalString(payload, "receiptEmail", 320) ??
                ValidateOptionalString(payload, "refundAddress", 256) ??
@@ -83,6 +90,7 @@ public static class MakePayCheckoutPolicy
 
         ApplyReceiptEmailPolicy(prompt, payload);
         ApplyRefundAddressPolicy(config, prompt, payload);
+        payload["paymentMethod"] = "crypto";
         return payload;
     }
 
@@ -201,7 +209,7 @@ public static class MakePayCheckoutPolicy
         }
 
         var parts = value
-            .Split(['.', '-', ':', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(new[] { '.', '-', ':', '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(part => part.ToUpperInvariant());
         foreach (var part in parts)
         {
@@ -243,7 +251,7 @@ public static class MakePayCheckoutPolicy
         }
 
         return value
-            .Split([',', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(NormalizeAssetKey)
             .Where(asset => asset is not null)
             .Select(asset => asset!)
