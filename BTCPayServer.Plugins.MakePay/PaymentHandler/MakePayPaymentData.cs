@@ -7,6 +7,7 @@ public class MakePayPaymentData
     public string PaymentLinkUid { get; set; } = string.Empty;
     public string SessionId { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public string PaymentMethod { get; set; } = "crypto";
     public string? SellAsset { get; set; }
     public string? BuyAsset { get; set; }
     public string? RequiredSellAmount { get; set; }

@@ -79,6 +79,12 @@
         flex: 0 0 auto;
     }
 
+    .makepay-checkout .makepay-cash-app-icon {
+        background: #00d64f;
+        color: #fff;
+        font-size: 1.35rem;
+    }
+
     .makepay-checkout .makepay-search {
         border-radius: .5rem;
         max-width: 100%;
@@ -112,6 +118,25 @@
 
         <div v-if="entryStep">
             <div v-if="!selectedCurrency">
+                <div v-if="cashAppOffered" class="mb-4">
+                    <label class="form-label">Pay with Cash App</label>
+                    <button type="button"
+                            class="makepay-option"
+                            v-on:click="openCashApp"
+                            :disabled="isBusy">
+                        <span class="d-flex align-items-center gap-3">
+                            <span class="makepay-token-fallback makepay-cash-app-icon">$</span>
+                            <span class="flex-grow-1 min-w-0">
+                                <span class="d-block fw-semibold">Cash App</span>
+                                <span class="d-block text-muted text-truncate">US payers · Hosted securely by MakePay</span>
+                            </span>
+                            <span v-if="cashAppAmountLabel" class="makepay-option-meta text-muted small">
+                                {{ cashAppAmountLabel }}
+                            </span>
+                        </span>
+                    </button>
+                </div>
+
                 <label class="form-label" for="makepay-asset-search">Pay with</label>
                 <input id="makepay-asset-search"
                        class="form-control makepay-search mb-3"
@@ -319,6 +344,7 @@
         data: function () {
             return {
                 tokens: [],
+                capabilities: null,
                 selectedCurrency: '',
                 selectedAsset: '',
                 assetSearch: '',
@@ -375,6 +401,20 @@
             },
             isAnonymous: function () {
                 return this.model.makePayIsAnonymous === true;
+            },
+            cashAppCapability: function () {
+                return this.capabilities && this.capabilities.cashAppOnramp
+                    ? this.capabilities.cashAppOnramp
+                    : null;
+            },
+            cashAppOffered: function () {
+                return this.cashAppCapability && this.cashAppCapability.offered === true;
+            },
+            cashAppAmountLabel: function () {
+                var amount = this.cashAppCapability && Number(this.cashAppCapability.amountUsd);
+                return Number.isFinite(amount) && amount > 0
+                    ? '$' + amount.toFixed(2)
+                    : '';
             },
             refundAddressMode: function () {
                 return this.model.makePayRefundAddressMode === 'payer_entered'
@@ -557,7 +597,17 @@
                     return;
                 }
 
+                await this.loadCapabilities();
                 await this.loadTokens();
+            },
+            loadCapabilities: async function () {
+                try {
+                    var response = await fetch(this.apiBase + '/capabilities', { cache: 'no-store' });
+                    var payload = await this.parseFetchPayload(response, 'Unable to load payment methods.');
+                    this.capabilities = response.ok && payload ? payload : null;
+                } catch (err) {
+                    this.capabilities = null;
+                }
             },
             loadTokens: async function () {
                 this.error = '';
@@ -607,12 +657,14 @@
                             }
                             return a.chain.localeCompare(b.chain);
                         });
-                    if (this.tokens.length === 0) {
+                    if (this.tokens.length === 0 && !this.cashAppOffered) {
                         this.error = 'No MakePay currencies are available with the current settings.';
                     }
                     this.syncSelectedCurrencyFromAsset();
                 } catch (err) {
-                    this.error = err && err.message ? err.message : 'Unable to load currencies.';
+                    if (!this.cashAppOffered) {
+                        this.error = err && err.message ? err.message : 'Unable to load currencies.';
+                    }
                 } finally {
                     this.isBusy = false;
                 }
@@ -669,6 +721,22 @@
                 this.assetSearch = '';
                 this.refundAddress = '';
                 this.resetQuote();
+            },
+            openCashApp: function () {
+                if (!this.cashAppOffered) {
+                    return;
+                }
+
+                try {
+                    var target = new URL(String(this.model.makePayPaymentLinkUrl || ''), window.location.href);
+                    if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+                        throw new Error('Invalid MakePay checkout URL.');
+                    }
+                    target.searchParams.set('paymentMethod', 'cash_app_onramp');
+                    window.location.assign(target.toString());
+                } catch (err) {
+                    this.error = err && err.message ? err.message : 'Unable to open Cash App checkout.';
+                }
             },
             selectNetwork: function (identifier) {
                 this.selectedAsset = identifier;

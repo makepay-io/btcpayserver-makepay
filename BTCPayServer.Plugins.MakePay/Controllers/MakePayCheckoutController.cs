@@ -61,6 +61,24 @@ public class MakePayCheckoutController : ControllerBase
             "/api/swap/tokens?paymentLinkUid=" + Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid)));
     }
 
+    [HttpGet("capabilities")]
+    [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
+    public async Task<IActionResult> Capabilities(string storeId, string invoiceId)
+    {
+        var resolved = await Resolve(storeId, invoiceId);
+        if (resolved is null)
+        {
+            return NotFound();
+        }
+
+        return await Proxy(() => _makePayApiClient.SendPublic(
+            resolved.Config,
+            HttpMethod.Get,
+            "/api/public/payment-links/" +
+            Uri.EscapeDataString(resolved.Prompt.PaymentLinkUid) +
+            "/checkout-capabilities"));
+    }
+
     [HttpGet("session")]
     [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
     public async Task<IActionResult> Session(string storeId, string invoiceId)

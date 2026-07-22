@@ -71,6 +71,9 @@ public class MakePayPaymentRecorder
             PaymentLinkUid = promptDetails.PaymentLinkUid,
             SessionId = sessionId,
             Status = status ?? "complete",
+            PaymentMethod = Text(session["paymentMethod"]) ??
+                            Text(session.SelectToken("quotePayload.paymentMethod")) ??
+                            "crypto",
             SellAsset = Text(session["selectedSellAsset"]) ?? Text(session["sellAsset"]),
             BuyAsset = Text(session["selectedBuyAsset"]) ?? Text(session["buyAsset"]) ?? Text(session.SelectToken("settlement.asset")),
             RequiredSellAmount = Text(session["requiredSellAmount"]),
@@ -123,6 +126,7 @@ public class MakePayPaymentRecorder
                      paymentData.DepositAddress,
                      paymentData.PaymentRequest,
                      paymentData.DepositNetwork,
+                     paymentData.PaymentMethod,
                      paymentData.SellAsset,
                      paymentData.BuyAsset
                  }.Concat(transactionIds))

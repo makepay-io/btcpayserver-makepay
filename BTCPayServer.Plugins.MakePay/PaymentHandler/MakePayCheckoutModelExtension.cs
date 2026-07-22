@@ -51,6 +51,8 @@ public class MakePayCheckoutModelExtension : ICheckoutModelExtension
         context.Model.CheckoutBodyComponentName = CheckoutBodyComponentName;
         context.Model.AdditionalData["makePayStoreId"] = JToken.FromObject(context.Store.Id);
         context.Model.AdditionalData["makePayIsAnonymous"] = JToken.FromObject(promptDetails.IsAnonymous);
+        context.Model.AdditionalData["makePayPaymentLinkUrl"] =
+            JToken.FromObject(promptDetails.PaymentLinkUrl);
         context.Model.AdditionalData["makePaySettlementAsset"] = JToken.FromObject(promptDetails.SettlementAsset);
         context.Model.AdditionalData["makePayRequestReceiptEmailFromCustomer"] =
             JToken.FromObject(promptDetails.RequestReceiptEmailFromCustomer);

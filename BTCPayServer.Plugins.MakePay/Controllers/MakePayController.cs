@@ -89,7 +89,58 @@ public class MakePayController : Controller
         ViewData["MakePaySection"] = section;
         ViewData["MakePayActivePage"] = "MakePay" + char.ToUpperInvariant(section[0]) + section[1..];
         ViewData["MakePayTitle"] = title;
-        return View("Configure", GetConfig(store));
+        var config = GetConfig(store);
+        if (config.IsConfigured)
+        {
+            await PopulateConnectedPaymentSettings(store, config);
+        }
+        return View("Configure", config);
+    }
+
+    private async Task PopulateConnectedPaymentSettings(
+        StoreData store,
+        MakePayPaymentMethodConfig config)
+    {
+        config.ConnectedPaymentSettingsUrl = config.NormalizedApiBaseUrl() + "/home";
+        try
+        {
+            var previousAccessToken = config.AccessToken;
+            var previousRefreshToken = config.RefreshToken;
+            var previousAccessTokenExpiresAt = config.AccessTokenExpiresAt;
+            var response = await _makePayApiClient.GetMerchantSettings(config);
+            var allowedMethods = response.SelectToken("makePaySettings.allowedPaymentMethods") as JArray;
+            if (allowedMethods is not null)
+            {
+                config.ConnectedCashAppEnabled = allowedMethods
+                    .Values<string>()
+                    .Any(method => string.Equals(
+                        method,
+                        "cash_app_onramp",
+                        StringComparison.OrdinalIgnoreCase));
+            }
+
+            var routeKey = response.SelectToken("company.routeKey")?.Value<string>() ??
+                           response.SelectToken("company.slug")?.Value<string>();
+            if (!string.IsNullOrWhiteSpace(routeKey))
+            {
+                config.ConnectedPaymentSettingsUrl =
+                    config.NormalizedApiBaseUrl() +
+                    "/home/" +
+                    Uri.EscapeDataString(routeKey.Trim()) +
+                    "/merchant/payment-settings";
+            }
+
+            if (!string.Equals(previousAccessToken, config.AccessToken, StringComparison.Ordinal) ||
+                !string.Equals(previousRefreshToken, config.RefreshToken, StringComparison.Ordinal) ||
+                previousAccessTokenExpiresAt != config.AccessTokenExpiresAt)
+            {
+                await SaveConfig(store, config);
+            }
+        }
+        catch
+        {
+            config.ConnectedCashAppEnabled = null;
+        }
     }
 
     [HttpGet("api/currencies")]
@@ -496,7 +547,7 @@ public class MakePayController : Controller
         await _storeRepository.UpdateStore(store);
     }
 
-    private static MakePayPaymentMethodConfig MergePostedConfig(
+    internal static MakePayPaymentMethodConfig MergePostedConfig(
         MakePayPaymentMethodConfig existing,
         MakePayPaymentMethodConfig posted,
         string section)
@@ -508,10 +559,14 @@ public class MakePayController : Controller
             existing.DefaultReceiptEmail = NormalizeOptional(posted.DefaultReceiptEmail);
             existing.DisplayQuoteApproval = posted.DisplayQuoteApproval;
             existing.RefundAddressMode = posted.NormalizedRefundAddressMode();
-            existing.PaymentFeePayer = posted.NormalizedPaymentFeePayer();
-            existing.AllowedPaymentVariancePercent = posted.NormalizedAllowedPaymentVariancePercent();
-            existing.AllowedPaymentVarianceFixedUsd = posted.NormalizedAllowedPaymentVarianceFixedUsd();
-            existing.MerchantSurchargePercent = posted.NormalizedMerchantSurchargePercent();
+            if (!existing.IsConfigured)
+            {
+                existing.AnonymousFiatOnRampEnabled = posted.AnonymousFiatOnRampEnabled;
+                existing.PaymentFeePayer = posted.NormalizedPaymentFeePayer();
+                existing.AllowedPaymentVariancePercent = posted.NormalizedAllowedPaymentVariancePercent();
+                existing.AllowedPaymentVarianceFixedUsd = posted.NormalizedAllowedPaymentVarianceFixedUsd();
+                existing.MerchantSurchargePercent = posted.NormalizedMerchantSurchargePercent();
+            }
             existing.SettlementMode = posted.NormalizedSettlementMode();
             existing.SettlementCurrency = posted.NormalizedSettlementCurrency();
             existing.SettlementPrioritiesJson = NormalizeSettlementPrioritiesJson(posted.SettlementPrioritiesJson);
@@ -553,6 +608,7 @@ public class MakePayController : Controller
             PaymentLinkUid = details.PaymentLinkUid,
             SessionId = details.SessionId,
             MakePayStatus = details.Status,
+            PaymentMethod = details.PaymentMethod,
             SellAsset = details.SellAsset,
             BuyAsset = details.BuyAsset,
             RequiredSellAmount = details.RequiredSellAmount,
@@ -653,6 +709,7 @@ public class MakePayController : Controller
                     PaymentLinkUid = details.PaymentLinkUid,
                     SessionId = sessionId,
                     MakePayStatus = Text(session["status"]) ?? "pending",
+                    PaymentMethod = Text(session["paymentMethod"]) ?? "crypto",
                     SellAsset = selectedAsset,
                     BuyAsset = settlementAsset ?? details.SettlementAsset,
                     RequiredSellAmount = !string.IsNullOrWhiteSpace(requiredAmount)
@@ -767,6 +824,7 @@ public class MakePayController : Controller
                ContainsSearch(payment.SessionId, search) ||
                ContainsSearch(payment.PaymentLinkUid, search) ||
                ContainsSearch(payment.MakePayStatus, search) ||
+               ContainsSearch(payment.PaymentMethod, search) ||
                ContainsSearch(payment.SellAsset, search) ||
                ContainsSearch(payment.BuyAsset, search) ||
                ContainsSearch(payment.DepositNetwork, search) ||

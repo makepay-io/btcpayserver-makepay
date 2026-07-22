@@ -1,8 +1,11 @@
 #nullable enable
 using System;
 using BTCPayServer.Client.Models;
+using BTCPayServer.Plugins.MakePay.Controllers;
 using BTCPayServer.Plugins.MakePay.PaymentHandler;
+using BTCPayServer.Plugins.MakePay.Services;
 using BTCPayServer.Services.Invoices;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -10,6 +13,65 @@ namespace BTCPayServer.Plugins.MakePay.Tests;
 
 public class MakePayCheckoutPolicyTests
 {
+    [Fact]
+    public void MissingAnonymousFiatOnRampSettingDefaultsToEnabled()
+    {
+        var config = JsonConvert.DeserializeObject<MakePayPaymentMethodConfig>("{}");
+
+        Assert.NotNull(config);
+        Assert.True(config!.AnonymousFiatOnRampEnabled);
+        Assert.True(JObject.FromObject(config)["AnonymousFiatOnRampEnabled"]?.Value<bool>());
+    }
+
+    [Fact]
+    public void AnonymousCheckoutPolicySnapshotsEnabledPaymentMethods()
+    {
+        var enabled = MakePayApiClient.BuildAnonymousCheckoutPolicy(new MakePayPaymentMethodConfig());
+        var disabled = MakePayApiClient.BuildAnonymousCheckoutPolicy(new MakePayPaymentMethodConfig
+        {
+            AnonymousFiatOnRampEnabled = false
+        });
+
+        Assert.Equal(
+            ["crypto", "cash_app_onramp"],
+            enabled["allowedPaymentMethods"]?.Values<string>());
+        Assert.Equal(["crypto"], disabled["allowedPaymentMethods"]?.Values<string>());
+    }
+
+    [Fact]
+    public void ConnectedSettingsIgnoreForgedAnonymousPolicyFields()
+    {
+        var existing = new MakePayPaymentMethodConfig
+        {
+            ClientId = "client",
+            AccessToken = "access",
+            RefreshToken = "refresh",
+            DpopPrivateKeyPem = "private-key",
+            WebhookSecret = "webhook",
+            AnonymousFiatOnRampEnabled = true,
+            PaymentFeePayer = MakePayPaymentMethodConfig.PaymentFeePayerMerchant,
+            AllowedPaymentVariancePercent = 2m,
+            AllowedPaymentVarianceFixedUsd = 3m,
+            MerchantSurchargePercent = 0.5m
+        };
+        var forged = new MakePayPaymentMethodConfig
+        {
+            AnonymousFiatOnRampEnabled = false,
+            PaymentFeePayer = MakePayPaymentMethodConfig.PaymentFeePayerCustomer,
+            AllowedPaymentVariancePercent = 99m,
+            AllowedPaymentVarianceFixedUsd = 999m,
+            MerchantSurchargePercent = -1m
+        };
+
+        var result = MakePayController.MergePostedConfig(existing, forged, "general");
+
+        Assert.True(result.AnonymousFiatOnRampEnabled);
+        Assert.Equal(MakePayPaymentMethodConfig.PaymentFeePayerMerchant, result.PaymentFeePayer);
+        Assert.Equal(2m, result.AllowedPaymentVariancePercent);
+        Assert.Equal(3m, result.AllowedPaymentVarianceFixedUsd);
+        Assert.Equal(0.5m, result.MerchantSurchargePercent);
+    }
+
     [Fact]
     public void MerchantWalletModeOverwritesClientSuppliedRefundAddresses()
     {
@@ -220,6 +282,24 @@ public class MakePayCheckoutPolicyTests
             JObject.Parse("""{ "sellAsset": "USDC.ETH", "paymentMethod": "crypto" }""")));
         Assert.Equal("Invalid sellAsset.", MakePayCheckoutPolicy.ValidatePaymentRequestBody(
             JObject.Parse("""{ "sellAsset": "../ETH" }""")));
+        Assert.Equal("Invalid paymentMethod.", MakePayCheckoutPolicy.ValidatePaymentRequestBody(
+            JObject.Parse("""{ "sellAsset": "USDC.ETH", "paymentMethod": "cash_app_onramp" }""")));
+    }
+
+    [Fact]
+    public void CheckoutProxyForcesNativeFlowToCrypto()
+    {
+        var config = new MakePayPaymentMethodConfig();
+        var prompt = new MakePayPromptDetails
+        {
+            RequestReceiptEmailFromCustomer = true,
+            RefundAddressMode = MakePayPaymentMethodConfig.RefundAddressModePayerEntered
+        };
+        var payload = JObject.Parse("""{ "sellAsset": "USDC.ETH" }""");
+
+        var result = (JObject)MakePayCheckoutPolicy.ApplyCheckoutRequestPolicy(config, prompt, payload);
+
+        Assert.Equal("crypto", result["paymentMethod"]?.Value<string>());
     }
 
     [Fact]

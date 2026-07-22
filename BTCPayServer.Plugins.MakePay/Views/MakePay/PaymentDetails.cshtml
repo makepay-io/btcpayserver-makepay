@@ -77,6 +77,8 @@
         <section class="border rounded p-4 h-100">
             <h3 class="h4 mb-3">Payment</h3>
             <dl class="makepay-detail-list mb-0">
+                <dt>Method</dt>
+                <dd>@(payment.PaymentMethod == "cash_app_onramp" ? "Cash App" : "Crypto")</dd>
                 <dt>Pay asset</dt>
                 <dd>@ValueOrDash(payment.SellAsset)</dd>
                 <dt>Quoted pay amount</dt>
