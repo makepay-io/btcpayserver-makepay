@@ -170,11 +170,11 @@ that invoice:
 4. BTCPay checkout shows **Other currencies** as a payment method next to the
    store's normal BTC payment method.
 5. The customer either chooses a MakePay-supported crypto asset and network or
-   opens Cash App checkout on MakePay, receives a live quote, and completes the
-   payment.
+   chooses Cash App, receives a live USD quote, and completes the payment.
 
-Crypto stays in the native BTCPay invoice checkout. Cash App opens the hosted
-MakePay payment link in the same tab and returns to the BTCPay invoice. The
+Crypto and Cash App both stay in the native BTCPay invoice checkout. For Cash
+App, BTCPay displays the payment QR code, an **Open Cash App** button, expiry,
+and live payment status without navigating to the hosted MakePay checkout. The
 plugin uses MakePay public payment-link APIs for capabilities, available
 assets, quotes, payment start, payment address generation, QR display, status
 polling, and quote refresh.
