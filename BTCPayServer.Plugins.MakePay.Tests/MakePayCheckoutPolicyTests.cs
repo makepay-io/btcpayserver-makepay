@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.IO;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Plugins.MakePay.Controllers;
 using BTCPayServer.Plugins.MakePay.PaymentHandler;
@@ -343,5 +344,21 @@ public class MakePayCheckoutPolicyTests
         Assert.True(MakePayCheckoutPolicy.IsValidSessionId("session_123"));
         Assert.False(MakePayCheckoutPolicy.IsValidSessionId("session/123"));
         Assert.False(MakePayCheckoutPolicy.IsValidSessionId(new string('a', 161)));
+    }
+
+    [Fact]
+    public void CashAppCheckoutStaysInsideBtcpayAndUsesOriginScopedApi()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "CheckoutPaymentMethodExtension.cshtml"));
+
+        Assert.Contains("/btcpay-checkout", source);
+        Assert.Contains("Open Cash App", source);
+        Assert.Contains("Keep this invoice open", source);
+        Assert.Contains("credentials: this.isCashAppPayment ? 'omit' : 'same-origin'", source);
+        Assert.Contains("makePayPaymentLinkUrl || this.model.makePayCheckoutBaseUrl", source);
+        Assert.Contains("target=\"_blank\"", source);
+        Assert.DoesNotContain("window.location.assign", source);
+        Assert.DoesNotContain("paymentMethod=cash_app_onramp", source);
     }
 }
