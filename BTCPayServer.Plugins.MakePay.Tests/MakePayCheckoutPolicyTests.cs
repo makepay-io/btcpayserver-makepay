@@ -356,6 +356,7 @@ public class MakePayCheckoutPolicyTests
         Assert.Contains("Open Cash App", source);
         Assert.Contains("Keep this invoice open", source);
         Assert.Contains("credentials: this.isCashAppPayment ? 'omit' : 'same-origin'", source);
+        Assert.Contains("makePayPaymentLinkUrl || this.model.makePayCheckoutBaseUrl", source);
         Assert.Contains("target=\"_blank\"", source);
         Assert.DoesNotContain("window.location.assign", source);
         Assert.DoesNotContain("paymentMethod=cash_app_onramp", source);

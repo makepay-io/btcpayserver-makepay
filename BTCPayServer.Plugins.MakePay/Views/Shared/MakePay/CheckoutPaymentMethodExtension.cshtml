@@ -529,7 +529,7 @@
             cashAppApiBase: function () {
                 try {
                     var target = new URL(
-                        String(this.model.makePayCheckoutBaseUrl || this.model.makePayPaymentLinkUrl || ''),
+                        String(this.model.makePayPaymentLinkUrl || this.model.makePayCheckoutBaseUrl || ''),
                         window.location.href
                     );
                     if (target.protocol !== 'https:' && target.protocol !== 'http:') {
