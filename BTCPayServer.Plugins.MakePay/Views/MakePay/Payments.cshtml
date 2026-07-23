@@ -1,262 +1,112 @@
 @using BTCPayServer.Abstractions.Extensions
 @using BTCPayServer.Plugins.MakePay.Models
-@using BTCPayServer.Services
-@inject DisplayFormatter DisplayFormatter
 @model MakePayPaymentsViewModel
 @{
     ViewData.SetActivePage("MakePayPayments", "MakePay", "MakePay Payments");
 }
 
-<div class="sticky-header-setup"></div>
-<div class="sticky-header d-sm-flex align-items-center justify-content-between">
-    <h2 class="mb-0 d-flex align-items-center gap-2">
-        <span>@ViewData["Title"]</span>
-        <button type="button"
-                class="btn btn-link p-0 text-secondary makepay-help-button"
-                data-makepay-help-toggle="makepay-payments-help"
-                aria-controls="makepay-payments-help"
-                aria-expanded="false"
-                title="About MakePay payments">
-            <vc:icon symbol="info" />
-        </button>
-    </h2>
-</div>
-
-<partial name="_StatusMessage" />
-
-<div id="makepay-payments-help" class="makepay-page-help bg-tile rounded p-4 mb-4" data-makepay-help="makepay-payments-help" hidden>
-    <div class="d-flex gap-3">
-        <div class="flex-fill">
-            <p class="mb-2">MakePay payments show BTCPay invoice payments recorded through the MakePay payment method, plus open MakePay checkout sessions that already generated a deposit address.</p>
-            <p class="mb-2">Use this page to inspect the MakePay session, selected asset, deposit address, transaction id, BTCPay payment status, and settlement amount.</p>
-            <p class="mb-0">Search matches invoice ids, order ids, MakePay sessions, payment links, deposit addresses, payment requests, transaction ids, assets, networks, and statuses.</p>
+<div id="makepay-payments"
+     data-store-id="@Model.StoreId"
+     data-url="@Model.DataUrl"
+     data-invoice-url="@Model.InvoiceUrlTemplate"
+     data-payment-url="@Model.PaymentDetailsUrlTemplate">
+    <div class="sticky-header-setup"></div>
+    <div class="sticky-header d-flex align-items-center justify-content-between gap-3">
+        <div>
+            <h2 class="mb-0">Payments</h2>
+            <div class="text-secondary small mt-1" data-makepay-sync-status aria-live="polite">
+                Loading saved payments…
+            </div>
         </div>
-        <button type="button" class="btn-close flex-shrink-0" data-makepay-help-dismiss="makepay-payments-help" aria-label="Close">
-            <vc:icon symbol="close" />
+        <button type="button" class="btn btn-secondary d-flex align-items-center gap-2" data-makepay-refresh>
+            <vc:icon symbol="actions-refresh" />
+            <span>Refresh</span>
         </button>
     </div>
-</div>
 
-<form method="get" class="makepay-filter-bar d-flex flex-wrap align-items-end gap-3 mb-4">
-    <div class="flex-grow-1 makepay-filter-search">
-        <label class="form-label" for="makepay-search">Search</label>
-        <input id="makepay-search" name="searchTerm" value="@Model.SearchTerm" class="form-control" type="search" placeholder="Invoice, session, address, tx" />
-    </div>
-    <div>
-        <label class="form-label" for="makepay-status-filter">Status</label>
-        <select id="makepay-status-filter" name="status" class="form-select">
-            <option value="">All Status</option>
-            @foreach (var option in Model.StatusOptions)
-            {
-                <option value="@option" selected="@(Selected(option, Model.StatusFilter))">@option</option>
-            }
-        </select>
-    </div>
-    <div>
-        <label class="form-label" for="makepay-asset-filter">Asset</label>
-        <select id="makepay-asset-filter" name="asset" class="form-select">
-            <option value="">All Assets</option>
-            @foreach (var option in Model.AssetOptions)
-            {
-                <option value="@option" selected="@(Selected(option, Model.AssetFilter))">@option</option>
-            }
-        </select>
-    </div>
-    <div>
-        <label class="form-label" for="makepay-network-filter">Network</label>
-        <select id="makepay-network-filter" name="network" class="form-select">
-            <option value="">All Networks</option>
-            @foreach (var option in Model.NetworkOptions)
-            {
-                <option value="@option" selected="@(Selected(option, Model.NetworkFilter))">@option</option>
-            }
-        </select>
-    </div>
-    <div>
-        <label class="form-label" for="makepay-time-filter">Time</label>
-        <select id="makepay-time-filter" name="timeRange" class="form-select" data-makepay-time-filter>
-            <option value="">All Time</option>
-            <option value="24h" selected="@(Selected("24h", Model.TimeRange))">Last 24 hours</option>
-            <option value="3d" selected="@(Selected("3d", Model.TimeRange))">Last 3 days</option>
-            <option value="7d" selected="@(Selected("7d", Model.TimeRange))">Last 7 days</option>
-            <option value="30d" selected="@(Selected("30d", Model.TimeRange))">Last 30 days</option>
-            <option value="custom" selected="@(Selected("custom", Model.TimeRange))">Custom range</option>
-        </select>
-    </div>
-    <div class="makepay-custom-range" data-makepay-custom-range>
-        <label class="form-label" for="makepay-start-date">Start</label>
-        <input id="makepay-start-date" name="startDate" value="@Model.StartDate" class="form-control" type="datetime-local" />
-    </div>
-    <div class="makepay-custom-range" data-makepay-custom-range>
-        <label class="form-label" for="makepay-end-date">End</label>
-        <input id="makepay-end-date" name="endDate" value="@Model.EndDate" class="form-control" type="datetime-local" />
-    </div>
-    <input type="hidden" name="skip" value="0" />
-    <button type="submit" class="btn btn-primary">Search</button>
-    @if (HasFilters())
-    {
-        <a asp-action="Payments" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Clear</a>
-    }
-</form>
+    <partial name="_StatusMessage" />
 
-<div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
-        <thead>
-        <tr>
-            <th class="text-nowrap">Date</th>
-            <th>Invoice</th>
-            <th>Method</th>
-            <th>Asset</th>
-            <th>Deposit</th>
-            <th>Transaction</th>
-            <th>Status</th>
-            <th class="text-end">Amount</th>
-        </tr>
-        </thead>
-        <tbody>
-        @if (!Model.Payments.Any())
-        {
+    <form class="makepay-filter-bar d-flex flex-wrap align-items-end gap-3 mb-4" data-makepay-filters>
+        <div class="flex-grow-1 makepay-filter-search">
+            <label class="form-label" for="makepay-search">Search</label>
+            <input id="makepay-search" name="searchTerm" class="form-control" type="search"
+                   placeholder="Invoice, session, address, tx" />
+        </div>
+        <div>
+            <label class="form-label" for="makepay-status-filter">Status</label>
+            <select id="makepay-status-filter" name="status" class="form-select">
+                <option value="">All Status</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label" for="makepay-asset-filter">Asset</label>
+            <select id="makepay-asset-filter" name="asset" class="form-select">
+                <option value="">All Assets</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label" for="makepay-network-filter">Network</label>
+            <select id="makepay-network-filter" name="network" class="form-select">
+                <option value="">All Networks</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label" for="makepay-time-filter">Time</label>
+            <select id="makepay-time-filter" name="timeRange" class="form-select" data-makepay-time-filter>
+                <option value="">All Time</option>
+                <option value="24h">Last 24 hours</option>
+                <option value="3d">Last 3 days</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="custom">Custom range</option>
+            </select>
+        </div>
+        <div class="makepay-custom-range" data-makepay-custom-range hidden>
+            <label class="form-label" for="makepay-start-date">Start</label>
+            <input id="makepay-start-date" name="startDate" class="form-control" type="datetime-local" />
+        </div>
+        <div class="makepay-custom-range" data-makepay-custom-range hidden>
+            <label class="form-label" for="makepay-end-date">End</label>
+            <input id="makepay-end-date" name="endDate" class="form-control" type="datetime-local" />
+        </div>
+        <button type="submit" class="btn btn-primary">Search</button>
+        <button type="button" class="btn btn-secondary" data-makepay-clear hidden>Clear</button>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
             <tr>
-                <td colspan="8" class="text-muted py-4">
-                    No MakePay payments found.
-                </td>
+                <th class="text-nowrap">Date</th>
+                <th>Invoice</th>
+                <th>Method</th>
+                <th>Asset</th>
+                <th>Deposit</th>
+                <th>Transaction</th>
+                <th>Status</th>
+                <th class="text-end">Amount</th>
             </tr>
-        }
-        @foreach (var payment in Model.Payments)
-        {
+            </thead>
+            <tbody data-makepay-payment-rows>
             <tr>
-                <td class="text-nowrap">
-                    @payment.Created.ToBrowserDate()
-                </td>
-                <td>
-                    <div>
-                        <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@payment.InvoiceId">
-                            <vc:truncate-center text="@payment.InvoiceId" classes="truncate-center-id" />
-                        </a>
+                <td colspan="8" class="py-5 text-center">
+                    <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                        <span class="visually-hidden">Loading payments…</span>
                     </div>
-                    @if (!string.IsNullOrWhiteSpace(payment.OrderId))
-                    {
-                        <div class="small text-muted text-break">@payment.OrderId</div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(payment.PaymentLinkUid))
-                    {
-                        <div class="small text-muted">
-                            Link <vc:truncate-center text="@payment.PaymentLinkUid" classes="truncate-center-id" />
-                        </div>
-                    }
-                </td>
-                <td>@(payment.PaymentMethod == "cash_app_onramp" ? "Cash App" : "Crypto")</td>
-                <td>
-                    <div>@FormatAsset(payment.SellAsset)</div>
-                    @if (!string.IsNullOrWhiteSpace(payment.RequiredSellAmount))
-                    {
-                        <div class="small text-muted text-nowrap">@payment.RequiredSellAmount</div>
-                    }
-                </td>
-                <td>
-                    @if (!string.IsNullOrWhiteSpace(payment.DepositAddress))
-                    {
-                        <a href="@DepositExplorerUrl(payment.DepositAddress)" target="_blank" rel="noreferrer noopener">
-                            <vc:truncate-center text="@payment.DepositAddress" classes="truncate-center-id" />
-                        </a>
-                    }
-                    else if (!string.IsNullOrWhiteSpace(payment.PaymentRequest))
-                    {
-                        <vc:truncate-center text="@payment.PaymentRequest" classes="truncate-center-id" />
-                    }
-                    else
-                    {
-                        <span class="text-muted">-</span>
-                    }
-                </td>
-                <td>
-                    @if (!string.IsNullOrWhiteSpace(payment.TransactionIds))
-                    {
-                        <vc:truncate-center text="@payment.TransactionIds" classes="truncate-center-id" />
-                    }
-                    else if (!string.IsNullOrWhiteSpace(payment.DeliveryId))
-                    {
-                        <span class="small text-muted">Delivery</span>
-                        <vc:truncate-center text="@payment.DeliveryId" classes="truncate-center-id" />
-                    }
-                    else
-                    {
-                        <span class="text-muted">-</span>
-                    }
-                </td>
-                <td>
-                    <span class="badge rounded-pill @StatusClass(payment.Status)">@payment.Status</span>
-                    @if (payment.IsSessionOnly)
-                    {
-                        <div class="small text-muted mt-1">Awaiting funds</div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(payment.MakePayStatus))
-                    {
-                        <div class="small text-muted mt-1">MakePay: @payment.MakePayStatus</div>
-                    }
-                </td>
-                <td class="text-end text-nowrap">
-                    <span data-sensitive>@DisplayFormatter.Currency(payment.Amount, payment.Currency)</span>
-                    @if (!string.IsNullOrWhiteSpace(payment.SettlementAmount))
-                    {
-                        <div class="small text-muted">@payment.SettlementAmount @Dash(payment.BuyAsset ?? payment.Currency)</div>
-                    }
                 </td>
             </tr>
-        }
-        </tbody>
-    </table>
-</div>
-
-@if (Model.Skip > 0 || Model.HasMore)
-{
-    <div class="d-flex justify-content-between align-items-center mt-4">
-        <div>
-            @if (Model.Skip > 0)
-            {
-                <a class="btn btn-secondary"
-                   asp-action="Payments"
-                   asp-route-storeId="@Model.StoreId"
-                   asp-route-searchTerm="@Model.SearchTerm"
-                   asp-route-status="@Model.StatusFilter"
-                   asp-route-asset="@Model.AssetFilter"
-                   asp-route-network="@Model.NetworkFilter"
-                   asp-route-timeRange="@Model.TimeRange"
-                   asp-route-startDate="@Model.StartDate"
-                   asp-route-endDate="@Model.EndDate"
-                   asp-route-skip="@Math.Max(0, Model.Skip - Model.Take)">Previous</a>
-            }
-        </div>
-        <div>
-            @if (Model.HasMore)
-            {
-                <a class="btn btn-secondary"
-                   asp-action="Payments"
-                   asp-route-storeId="@Model.StoreId"
-                   asp-route-searchTerm="@Model.SearchTerm"
-                   asp-route-status="@Model.StatusFilter"
-                   asp-route-asset="@Model.AssetFilter"
-                   asp-route-network="@Model.NetworkFilter"
-                   asp-route-timeRange="@Model.TimeRange"
-                   asp-route-startDate="@Model.StartDate"
-                   asp-route-endDate="@Model.EndDate"
-                   asp-route-skip="@(Model.Skip + Model.Take)">Next</a>
-            }
-        </div>
+            </tbody>
+        </table>
     </div>
-}
+
+    <div class="d-flex justify-content-between align-items-center mt-4" data-makepay-pagination hidden>
+        <button type="button" class="btn btn-secondary" data-makepay-previous>Previous</button>
+        <div class="text-secondary small" data-makepay-page-summary></div>
+        <button type="button" class="btn btn-secondary" data-makepay-next>Next</button>
+    </div>
+</div>
 
 <style>
-    .makepay-help-button {
-        line-height: 1;
-        margin-left: .5rem;
-    }
-
-    .makepay-page-help[hidden],
-    .makepay-custom-range[hidden] {
-        display: none !important;
-    }
-
     .makepay-filter-search {
         min-width: min(100%, 20rem);
     }
@@ -265,115 +115,351 @@
     .makepay-filter-bar input[type="datetime-local"] {
         min-width: 10rem;
     }
+
+    .makepay-custom-range[hidden],
+    [data-makepay-pagination][hidden] {
+        display: none !important;
+    }
+
+    [data-makepay-refresh][aria-busy="true"] .icon {
+        animation: makepay-spin .8s linear infinite;
+    }
+
+    .makepay-payment-meta {
+        max-width: 14rem;
+    }
+
+    @@keyframes makepay-spin {
+        to { transform: rotate(360deg); }
+    }
 </style>
 
 <script>
 (function () {
-    document.querySelectorAll('[data-makepay-help]').forEach(function (panel) {
-        var key = panel.dataset.makepayHelp;
-        var toggle = document.querySelector('[data-makepay-help-toggle="' + key + '"]');
-        var dismiss = panel.querySelector('[data-makepay-help-dismiss="' + key + '"]');
-        if (!key || !toggle || !dismiss) {
+    const root = document.getElementById('makepay-payments');
+    if (!root) return;
+
+    const dataUrl = root.dataset.url;
+    const storeId = root.dataset.storeId;
+    const invoiceUrlTemplate = root.dataset.invoiceUrl;
+    const paymentUrlTemplate = root.dataset.paymentUrl;
+    const rows = root.querySelector('[data-makepay-payment-rows]');
+    const form = root.querySelector('[data-makepay-filters]');
+    const refreshButton = root.querySelector('[data-makepay-refresh]');
+    const clearButton = root.querySelector('[data-makepay-clear]');
+    const syncStatus = root.querySelector('[data-makepay-sync-status]');
+    const pagination = root.querySelector('[data-makepay-pagination]');
+    const previousButton = root.querySelector('[data-makepay-previous]');
+    const nextButton = root.querySelector('[data-makepay-next]');
+    const pageSummary = root.querySelector('[data-makepay-page-summary]');
+    const timeFilter = root.querySelector('[data-makepay-time-filter]');
+    const customRangeFields = root.querySelectorAll('[data-makepay-custom-range]');
+    const cacheVersion = 'v2';
+    let pollTimer = null;
+    let requestNumber = 0;
+    let hasRenderedData = false;
+
+    function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = text;
+        return node;
+    }
+
+    function queryParams() {
+        const params = new URLSearchParams(window.location.search);
+        ['searchTerm', 'status', 'asset', 'network', 'timeRange', 'startDate', 'endDate', 'skip']
+            .forEach(key => {
+                if (!params.get(key)) params.delete(key);
+            });
+        return params;
+    }
+
+    function cacheKey(params) {
+        const normalized = new URLSearchParams(params);
+        normalized.delete('refresh');
+        return `makepay:payments:${cacheVersion}:${storeId}:${normalized.toString()}`;
+    }
+
+    function readCache(params) {
+        try {
+            const cached = JSON.parse(localStorage.getItem(cacheKey(params)));
+            if (!cached || !cached.savedAt || Date.now() - cached.savedAt > 24 * 60 * 60 * 1000) return null;
+            return cached.data;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function writeCache(params, data) {
+        try {
+            localStorage.setItem(cacheKey(params), JSON.stringify({ savedAt: Date.now(), data }));
+        } catch (_) {
+            // Private browsing and strict storage policies should not block the page.
+        }
+    }
+
+    function fillForm(params) {
+        Array.from(form.elements).forEach(control => {
+            if (!control.name) return;
+            control.value = params.get(control.name) || '';
+        });
+        updateCustomRange();
+        clearButton.hidden = !hasFilters(params);
+    }
+
+    function hasFilters(params) {
+        return ['searchTerm', 'status', 'asset', 'network', 'timeRange', 'startDate', 'endDate']
+            .some(key => Boolean(params.get(key)));
+    }
+
+    function updateCustomRange() {
+        const show = timeFilter.value === 'custom';
+        customRangeFields.forEach(field => field.hidden = !show);
+    }
+
+    function populateSelect(name, values, defaultText, selected) {
+        const select = form.elements[name];
+        select.replaceChildren(new Option(defaultText, ''));
+        (values || []).forEach(value => select.add(new Option(value, value, false, value === selected)));
+        select.value = selected || '';
+    }
+
+    function short(value, start = 7, end = 7) {
+        if (!value || value.length <= start + end + 1) return value || '';
+        return `${value.slice(0, start)}…${value.slice(-end)}`;
+    }
+
+    function displayAsset(value) {
+        if (!value || value.toLowerCase() === 'null') return '-';
+        const parts = value.split('.', 2);
+        if (parts.length < 2) return value;
+        const ticker = parts[1].split('-', 1)[0].toUpperCase();
+        return `${ticker} on ${parts[0].toUpperCase()}`;
+    }
+
+    function displayAmount(amount, currency) {
+        const numeric = Number(amount);
+        const maxDigits = currency === 'BTC' ? 8 : 2;
+        const formatted = Number.isFinite(numeric)
+            ? new Intl.NumberFormat(undefined, { maximumFractionDigits: maxDigits }).format(numeric)
+            : amount;
+        return `${formatted} ${currency || ''}`.trim();
+    }
+
+    function statusClass(status) {
+        if (status === 'Settled') return 'bg-success';
+        if (status === 'Processing') return 'bg-warning text-dark';
+        return 'bg-secondary';
+    }
+
+    function renderRows(data) {
+        rows.replaceChildren();
+        if (!data.payments || !data.payments.length) {
+            const row = element('tr');
+            const cell = element('td', 'text-secondary py-5 text-center', 'No MakePay payments found.');
+            cell.colSpan = 8;
+            row.append(cell);
+            rows.append(row);
             return;
         }
 
-        var dismissedKey = key + ':dismissed';
-        function setVisible(visible) {
-            panel.hidden = !visible;
-            toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
-        }
+        data.payments.forEach(payment => {
+            const row = element('tr');
 
-        setVisible(localStorage.getItem(dismissedKey) !== 'true');
+            const dateCell = element('td', 'text-nowrap');
+            const time = element('time', '', new Intl.DateTimeFormat(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+            }).format(new Date(payment.created)));
+            time.dateTime = payment.created;
+            dateCell.append(time);
 
-        toggle.addEventListener('click', function () {
-            if (panel.hidden) {
-                localStorage.removeItem(dismissedKey);
-                setVisible(true);
-            } else {
-                localStorage.setItem(dismissedKey, 'true');
-                setVisible(false);
+            const invoiceCell = element('td', 'makepay-payment-meta');
+            const invoiceLink = element('a', '', short(payment.invoiceId));
+            invoiceLink.href = invoiceUrlTemplate.replace('__invoiceId__', encodeURIComponent(payment.invoiceId));
+            invoiceLink.title = payment.invoiceId;
+            invoiceCell.append(invoiceLink);
+            if (payment.orderId) invoiceCell.append(element('div', 'small text-secondary text-break', payment.orderId));
+            if (payment.paymentLinkUid) {
+                invoiceCell.append(element('div', 'small text-secondary text-break', `Link ${short(payment.paymentLinkUid)}`));
             }
-        });
 
-        dismiss.addEventListener('click', function () {
-            localStorage.setItem(dismissedKey, 'true');
-            setVisible(false);
+            const methodCell = element(
+                'td',
+                '',
+                payment.paymentMethod === 'cash_app_onramp' ? 'Cash App' : 'Crypto');
+
+            const assetCell = element('td');
+            assetCell.append(element('div', '', displayAsset(payment.sellAsset)));
+            if (payment.requiredSellAmount) {
+                assetCell.append(element('div', 'small text-secondary text-nowrap', payment.requiredSellAmount));
+            }
+
+            const depositCell = element('td');
+            if (payment.depositAddress) {
+                const link = element('a', '', short(payment.depositAddress));
+                link.href = `https://explorer.makecrypto.io/deposit/${encodeURIComponent(payment.depositAddress)}`;
+                link.target = '_blank';
+                link.rel = 'noreferrer noopener';
+                link.title = payment.depositAddress;
+                depositCell.append(link);
+            } else if (payment.paymentRequest) {
+                depositCell.append(element('span', '', short(payment.paymentRequest)));
+            } else {
+                depositCell.append(element('span', 'text-secondary', '-'));
+            }
+
+            const transactionCell = element('td');
+            const transaction = payment.transactionIds || payment.deliveryId;
+            if (transaction) {
+                const detailsLink = element('a', '', short(transaction));
+                detailsLink.href = paymentUrlTemplate.replace('__paymentId__', encodeURIComponent(payment.paymentId));
+                detailsLink.title = transaction;
+                transactionCell.append(detailsLink);
+            } else {
+                transactionCell.append(element('span', 'text-secondary', '-'));
+            }
+
+            const statusCell = element('td');
+            statusCell.append(element('span', `badge rounded-pill ${statusClass(payment.status)}`, payment.status));
+            if (payment.isSessionOnly) {
+                statusCell.append(element('div', 'small text-secondary mt-1', 'Awaiting funds'));
+            }
+            if (payment.makePayStatus) {
+                statusCell.append(element('div', 'small text-secondary mt-1', `MakePay: ${payment.makePayStatus}`));
+            }
+
+            const amountCell = element('td', 'text-end text-nowrap');
+            const amount = element('span', '', displayAmount(payment.amount, payment.currency));
+            amount.setAttribute('data-sensitive', '');
+            amountCell.append(amount);
+            if (payment.settlementAmount) {
+                amountCell.append(element(
+                    'div',
+                    'small text-secondary',
+                    `${payment.settlementAmount} ${payment.buyAsset || payment.currency || ''}`.trim()));
+            }
+
+            row.append(dateCell, invoiceCell, methodCell, assetCell, depositCell, transactionCell, statusCell, amountCell);
+            rows.append(row);
         });
+    }
+
+    function render(data, cached) {
+        const params = queryParams();
+        hasRenderedData = true;
+        renderRows(data);
+        populateSelect('status', data.statusOptions, 'All Status', params.get('status'));
+        populateSelect('asset', data.assetOptions, 'All Assets', params.get('asset'));
+        populateSelect('network', data.networkOptions, 'All Networks', params.get('network'));
+        fillForm(params);
+
+        const start = data.totalCount ? data.skip + 1 : 0;
+        const end = Math.min(data.skip + data.take, data.totalCount);
+        pageSummary.textContent = `${start}–${end} of ${data.totalCount}`;
+        previousButton.disabled = data.skip <= 0;
+        nextButton.disabled = !data.hasMore;
+        pagination.hidden = data.totalCount <= data.take && data.skip === 0;
+
+        if (cached) {
+            syncStatus.textContent = 'Showing saved payments while checking for updates…';
+        } else if (data.isRefreshing) {
+            syncStatus.textContent = 'Payments are up to date locally · checking open sessions in the background…';
+        } else {
+            const updated = new Intl.DateTimeFormat(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit'
+            }).format(new Date(data.fetchedAt));
+            syncStatus.textContent = `Updated ${updated}`;
+        }
+    }
+
+    async function load(forceRefresh, pollAttempt = 0) {
+        const currentRequest = ++requestNumber;
+        const params = queryParams();
+        if (forceRefresh) params.set('refresh', 'true');
+        refreshButton.setAttribute('aria-busy', 'true');
+        refreshButton.disabled = true;
+
+        try {
+            const url = new URL(dataUrl, window.location.origin);
+            params.forEach((value, key) => url.searchParams.set(key, value));
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+                cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Unable to load MakePay payments.');
+            if (currentRequest !== requestNumber) return;
+
+            const cacheParams = queryParams();
+            writeCache(cacheParams, data);
+            render(data, false);
+
+            window.clearTimeout(pollTimer);
+            if (data.isRefreshing && pollAttempt < 15) {
+                pollTimer = window.setTimeout(() => load(false, pollAttempt + 1), 2000);
+            }
+        } catch (error) {
+            if (currentRequest !== requestNumber) return;
+            if (!hasRenderedData) {
+                rows.replaceChildren();
+                const row = element('tr');
+                const cell = element('td', 'text-danger py-5 text-center', error.message);
+                cell.colSpan = 8;
+                row.append(cell);
+                rows.append(row);
+            }
+            syncStatus.textContent = `${error.message} Saved payments remain visible when available.`;
+        } finally {
+            if (currentRequest === requestNumber) {
+                refreshButton.removeAttribute('aria-busy');
+                refreshButton.disabled = false;
+            }
+        }
+    }
+
+    function navigate(params) {
+        const query = params.toString();
+        window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+        fillForm(params);
+        const cached = readCache(params);
+        if (cached) render(cached, true);
+        load(false);
+    }
+
+    form.addEventListener('submit', event => {
+        event.preventDefault();
+        const values = new FormData(form);
+        const params = new URLSearchParams();
+        values.forEach((value, key) => {
+            if (value) params.set(key, value.toString());
+        });
+        params.set('skip', '0');
+        navigate(params);
     });
 
-    var timeFilter = document.querySelector('[data-makepay-time-filter]');
-    var customRangeFields = document.querySelectorAll('[data-makepay-custom-range]');
-    if (timeFilter && customRangeFields.length) {
-        function updateCustomRange() {
-            var show = timeFilter.value === 'custom';
-            customRangeFields.forEach(function (field) {
-                field.hidden = !show;
-            });
-        }
+    clearButton.addEventListener('click', () => navigate(new URLSearchParams()));
+    refreshButton.addEventListener('click', () => load(true));
+    timeFilter.addEventListener('change', updateCustomRange);
+    previousButton.addEventListener('click', () => {
+        const params = queryParams();
+        params.set('skip', Math.max(0, Number(params.get('skip') || 0) - 50).toString());
+        navigate(params);
+    });
+    nextButton.addEventListener('click', () => {
+        const params = queryParams();
+        params.set('skip', (Number(params.get('skip') || 0) + 50).toString());
+        navigate(params);
+    });
 
-        timeFilter.addEventListener('change', updateCustomRange);
-        updateCustomRange();
-    }
+    const initialParams = queryParams();
+    fillForm(initialParams);
+    const cached = readCache(initialParams);
+    if (cached) render(cached, true);
+    load(false);
 })();
 </script>
-
-@functions {
-    private bool HasFilters()
-    {
-        return !string.IsNullOrWhiteSpace(Model.SearchTerm) ||
-               !string.IsNullOrWhiteSpace(Model.StatusFilter) ||
-               !string.IsNullOrWhiteSpace(Model.AssetFilter) ||
-               !string.IsNullOrWhiteSpace(Model.NetworkFilter) ||
-               !string.IsNullOrWhiteSpace(Model.TimeRange);
-    }
-
-    private static bool Selected(string option, string? value)
-    {
-        return string.Equals(option, value, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string StatusClass(BTCPayServer.Data.PaymentStatus status)
-    {
-        return status switch
-        {
-            BTCPayServer.Data.PaymentStatus.Settled => "bg-success",
-            BTCPayServer.Data.PaymentStatus.Processing => "bg-warning text-dark",
-            _ => "bg-secondary"
-        };
-    }
-
-    private static string Dash(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ||
-               string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
-            ? "-"
-            : value;
-    }
-
-    private static string FormatAsset(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value) ||
-            string.Equals(value, "null", StringComparison.OrdinalIgnoreCase))
-        {
-            return "-";
-        }
-
-        var asset = value.Trim();
-        if (!asset.Contains('.', StringComparison.Ordinal))
-        {
-            return asset;
-        }
-
-        var parts = asset.Split('.', 2);
-        var chain = parts[0].Trim().ToUpperInvariant();
-        var ticker = parts[1].Split('-', 2)[0].Trim().ToUpperInvariant();
-        return string.IsNullOrWhiteSpace(ticker)
-            ? asset
-            : $"{ticker} on {chain}";
-    }
-
-    private static string DepositExplorerUrl(string address)
-    {
-        return "https://explorer.makecrypto.io/deposit/" + Uri.EscapeDataString(address);
-    }
-}

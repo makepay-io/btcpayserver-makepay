@@ -29,6 +29,15 @@
     <None Include="..\BTCPayServer.Plugins.MakePay\Views\Shared\MakePay\CheckoutPaymentMethodExtension.cshtml"
           Link="Fixtures\CheckoutPaymentMethodExtension.cshtml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\BTCPayServer.Plugins.MakePay\Views\MakePay\Payments.cshtml"
+          Link="Fixtures\Payments.cshtml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\BTCPayServer.Plugins.MakePay\Views\MakePay\Statistics.cshtml"
+          Link="Fixtures\Statistics.cshtml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\BTCPayServer.Plugins.MakePay\Views\Shared\MakePay\StoreNavExtension.cshtml"
+          Link="Fixtures\StoreNavExtension.cshtml"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="CopyBTCPayServerRuntime" AfterTargets="Build">
