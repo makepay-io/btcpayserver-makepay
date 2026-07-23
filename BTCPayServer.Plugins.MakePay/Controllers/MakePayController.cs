@@ -34,19 +34,22 @@ public class MakePayController : Controller
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly MakePayApiClient _makePayApiClient;
     private readonly MakePaySecretProtector _secretProtector;
+    private readonly MakePayDashboardService _dashboardService;
 
     public MakePayController(
         StoreRepository storeRepository,
         InvoiceRepository invoiceRepository,
         PaymentMethodHandlerDictionary handlers,
         MakePayApiClient makePayApiClient,
-        MakePaySecretProtector secretProtector)
+        MakePaySecretProtector secretProtector,
+        MakePayDashboardService dashboardService)
     {
         _storeRepository = storeRepository;
         _invoiceRepository = invoiceRepository;
         _handlers = handlers;
         _makePayApiClient = makePayApiClient;
         _secretProtector = secretProtector;
+        _dashboardService = dashboardService;
     }
 
     [HttpGet("")]
@@ -57,7 +60,27 @@ public class MakePayController : Controller
             return NotFound();
         }
 
-        return RedirectToAction(nameof(Payments), new { storeId });
+        return RedirectToAction(nameof(Statistics), new { storeId });
+    }
+
+    [HttpGet("statistics")]
+    public async Task<IActionResult> Statistics(string storeId)
+    {
+        if (await _storeRepository.FindStore(storeId) is null)
+        {
+            return NotFound();
+        }
+
+        return View(new MakePayStatisticsViewModel
+        {
+            StoreId = storeId,
+            DataUrl = Url.Action(nameof(StatisticsData), new { storeId }) ?? string.Empty,
+            PaymentsUrl = Url.Action(nameof(Payments), new { storeId }) ?? string.Empty,
+            InvoiceUrlTemplate = Url.Action(
+                "Invoice",
+                "UIInvoice",
+                new { invoiceId = "__invoiceId__" }) ?? string.Empty
+        });
     }
 
     [HttpGet("general")]
@@ -250,6 +273,30 @@ public class MakePayController : Controller
 
     [HttpGet("payments")]
     public async Task<IActionResult> Payments(
+        string storeId)
+    {
+        var store = await _storeRepository.FindStore(storeId);
+        if (store is null)
+        {
+            return NotFound();
+        }
+
+        return View(new MakePayPaymentsViewModel
+        {
+            StoreId = store.Id,
+            DataUrl = Url.Action(nameof(PaymentsData), new { storeId }) ?? string.Empty,
+            InvoiceUrlTemplate = Url.Action(
+                "Invoice",
+                "UIInvoice",
+                new { invoiceId = "__invoiceId__" }) ?? string.Empty,
+            PaymentDetailsUrlTemplate = Url.Action(
+                nameof(PaymentDetails),
+                new { storeId, paymentId = "__paymentId__" }) ?? string.Empty
+        });
+    }
+
+    [HttpGet("api/payments")]
+    public async Task<IActionResult> PaymentsData(
         string storeId,
         [FromQuery] string? searchTerm,
         [FromQuery] string? status,
@@ -258,33 +305,23 @@ public class MakePayController : Controller
         [FromQuery] string? timeRange,
         [FromQuery] string? startDate,
         [FromQuery] string? endDate,
-        [FromQuery] int skip = 0)
+        [FromQuery] int skip = 0,
+        [FromQuery] bool refresh = false)
     {
-        var store = await _storeRepository.FindStore(storeId);
-        if (store is null)
+        if (await _storeRepository.FindStore(storeId) is null)
         {
             return NotFound();
         }
 
         const int take = 50;
-        const int invoiceScanLimit = 1000;
         skip = Math.Max(0, skip);
-        var query = new InvoiceQuery
+        var result = await _dashboardService.GetPayments(storeId, refresh);
+        if (result.Snapshot is null)
         {
-            StoreId = [store.Id],
-            IncludeArchived = true,
-            Take = invoiceScanLimit
-        };
-        var invoices = await _invoiceRepository.GetInvoices(query);
-        var makePayPayments = invoices
-            .SelectMany(invoice => invoice.GetPayments(false)
-                .Where(payment => payment.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId)
-                .Select(payment => ToPaymentListItem(invoice, payment)))
-            .ToList();
-        makePayPayments.AddRange(await LoadOpenSessionItems(store, invoices, makePayPayments));
-        makePayPayments = makePayPayments
-            .OrderByDescending(payment => payment.Created)
-            .ToList();
+            return StatusCode(503, new { error = "Unable to load MakePay payments." });
+        }
+
+        var makePayPayments = result.Snapshot.Payments;
         var statusOptions = makePayPayments
             .Select(payment => payment.Status.ToString())
             .Concat(makePayPayments.Select(payment => payment.MakePayStatus))
@@ -322,26 +359,50 @@ public class MakePayController : Controller
             .Take(take)
             .ToList();
 
-        var model = new MakePayPaymentsViewModel
+        Response.Headers.CacheControl = "private, no-store";
+        return Json(new MakePayPaymentsDataResponse
         {
-            StoreId = store.Id,
-            SearchTerm = NormalizeOptional(searchTerm),
-            StatusFilter = NormalizeOptional(status),
-            AssetFilter = NormalizeOptional(asset),
-            NetworkFilter = NormalizeOptional(network),
-            TimeRange = NormalizeOptional(timeRange),
-            StartDate = NormalizeOptional(startDate),
-            EndDate = NormalizeOptional(endDate),
+            FetchedAt = result.Snapshot.FetchedAt,
+            IsRefreshing = result.IsRefreshing,
             Skip = skip,
             Take = take,
+            TotalCount = filteredPayments.Count,
             HasMore = filteredPayments.Count > skip + take,
-            Payments = items,
+            Payments = items.Select(MakePayDashboardService.ToApiItem).ToList(),
             StatusOptions = statusOptions,
             AssetOptions = assetOptions,
             NetworkOptions = networkOptions
-        };
+        });
+    }
 
-        return View(model);
+    [HttpGet("api/statistics")]
+    public async Task<IActionResult> StatisticsData(
+        string storeId,
+        [FromQuery] int days = 30,
+        [FromQuery] bool refresh = false)
+    {
+        var store = await _storeRepository.FindStore(storeId);
+        if (store is null)
+        {
+            return NotFound();
+        }
+
+        days = days is 7 or 30 or 90 ? days : 30;
+        var result = await _dashboardService.GetRecorded(storeId, refresh);
+        if (result.Snapshot is null)
+        {
+            return StatusCode(503, new { error = "Unable to load MakePay statistics." });
+        }
+
+        var data = MakePayDashboardService.BuildStatistics(
+            result.Snapshot.Payments,
+            store.GetStoreBlob().DefaultCurrency,
+            days,
+            DateTimeOffset.UtcNow);
+        data.FetchedAt = result.Snapshot.FetchedAt;
+        data.IsRefreshing = result.IsRefreshing;
+        Response.Headers.CacheControl = "private, no-store";
+        return Json(data);
     }
 
     [HttpGet("payments/{paymentId}")]
@@ -605,6 +666,8 @@ public class MakePayController : Controller
             Status = payment.Status,
             Amount = payment.Value,
             Currency = payment.Currency,
+            InvoiceAmount = payment.InvoicePaidAmount.Gross,
+            InvoiceCurrency = invoice.Currency,
             PaymentLinkUid = details.PaymentLinkUid,
             SessionId = details.SessionId,
             MakePayStatus = details.Status,
@@ -620,116 +683,6 @@ public class MakePayController : Controller
             TransactionIds = details.TransactionIds,
             DeliveryId = details.DeliveryId
         };
-    }
-
-    private async Task<List<MakePayPaymentListItem>> LoadOpenSessionItems(
-        StoreData store,
-        IReadOnlyList<InvoiceEntity> invoices,
-        IReadOnlyList<MakePayPaymentListItem> recordedPayments)
-    {
-        if (_handlers.TryGet(MakePayPlugin.MakePayPaymentMethodId) is not MakePayPaymentMethodHandler handler)
-        {
-            return [];
-        }
-
-        var config = GetConfig(store);
-        var recordedLinks = recordedPayments
-            .Select(payment => payment.PaymentLinkUid)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .ToHashSet(StringComparer.Ordinal);
-        var recordedSessions = recordedPayments
-            .Select(payment => payment.SessionId)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .ToHashSet(StringComparer.Ordinal);
-        var items = new List<MakePayPaymentListItem>();
-
-        foreach (var invoice in invoices.Take(200))
-        {
-            if (invoice.GetPayments(false).Any(payment => payment.PaymentMethodId == MakePayPlugin.MakePayPaymentMethodId))
-            {
-                continue;
-            }
-
-            var prompt = invoice.GetPaymentPrompt(MakePayPlugin.MakePayPaymentMethodId);
-            if (prompt is null)
-            {
-                continue;
-            }
-
-            var details = (MakePayPromptDetails)handler.ParsePaymentPromptDetails(prompt.Details);
-            if (string.IsNullOrWhiteSpace(details.PaymentLinkUid) ||
-                recordedLinks.Contains(details.PaymentLinkUid))
-            {
-                continue;
-            }
-
-            try
-            {
-                var sessionConfig = config;
-                if (!string.IsNullOrWhiteSpace(details.CheckoutBaseUrl))
-                {
-                    sessionConfig.CheckoutBaseUrl = details.CheckoutBaseUrl;
-                }
-
-                var current = await _makePayApiClient.SendPublic(
-                    sessionConfig,
-                    HttpMethod.Get,
-                    "/api/public/payment-links/" +
-                    Uri.EscapeDataString(details.PaymentLinkUid) +
-                    "/current-session");
-                var session = current["session"] as JObject;
-                var sessionId = Text(session?["sessionId"]);
-                if (session is null ||
-                    string.IsNullOrWhiteSpace(sessionId) ||
-                    recordedSessions.Contains(sessionId))
-                {
-                    continue;
-                }
-
-                var whatToSend = session["whatToSend"] as JObject;
-                var deposit = session["deposit"] as JObject;
-                var cashApp = session["cashApp"] as JObject;
-                var selectedAsset = Text(session["selectedSellAsset"]);
-                var requiredAmount = Text(whatToSend?["amount"]);
-                var requiredAsset = Text(whatToSend?["asset"]) ?? selectedAsset;
-                var depositAddress = Text(deposit?["address"]);
-                var paymentRequest = Text(cashApp?["paymentRequest"]);
-                var settlementAmount = Text(session.SelectToken("settlementAmount.targetAmount"));
-                var settlementAsset = Text(session.SelectToken("settlementAmount.targetAsset"));
-
-                items.Add(new MakePayPaymentListItem
-                {
-                    PaymentId = "session:" + sessionId,
-                    InvoiceId = invoice.Id,
-                    OrderId = invoice.Metadata.OrderId,
-                    Created = details.CreatedAt,
-                    Status = PaymentStatus.Processing,
-                    Amount = details.BtcAmount,
-                    Currency = "BTC",
-                    PaymentLinkUid = details.PaymentLinkUid,
-                    SessionId = sessionId,
-                    MakePayStatus = Text(session["status"]) ?? "pending",
-                    PaymentMethod = Text(session["paymentMethod"]) ?? "crypto",
-                    SellAsset = selectedAsset,
-                    BuyAsset = settlementAsset ?? details.SettlementAsset,
-                    RequiredSellAmount = !string.IsNullOrWhiteSpace(requiredAmount)
-                        ? requiredAmount + (!string.IsNullOrWhiteSpace(requiredAsset) ? " " + ShortAsset(requiredAsset) : string.Empty)
-                        : null,
-                    SettlementAmount = settlementAmount,
-                    SettlementClassification = Text(session.SelectToken("settlementAmount.classification")),
-                    DepositNetwork = ChainFromAsset(selectedAsset),
-                    DepositAddress = depositAddress,
-                    PaymentRequest = paymentRequest,
-                    IsSessionOnly = true
-                });
-            }
-            catch
-            {
-                // The payments page should remain usable if MakePay cannot return a live session.
-            }
-        }
-
-        return items;
     }
 
     private static IEnumerable<MakePayPaymentListItem> FilterPayments(
@@ -838,46 +791,6 @@ public class MakePayController : Controller
     {
         return !string.IsNullOrWhiteSpace(value) &&
                value.Contains(search, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string? Text(JToken? token)
-    {
-        if (token is null || token.Type is JTokenType.Null or JTokenType.Undefined)
-        {
-            return null;
-        }
-
-        var value = token?.Type == JTokenType.String
-            ? token.Value<string>()
-            : token?.ToString(Formatting.None);
-        value = NormalizeOptional(value);
-        return string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
-            ? null
-            : value;
-    }
-
-    private static string? ChainFromAsset(string? asset)
-    {
-        if (string.IsNullOrWhiteSpace(asset))
-        {
-            return null;
-        }
-
-        var value = asset.Trim();
-        return value.Contains('.', StringComparison.Ordinal)
-            ? value.Split('.', 2)[0].ToUpperInvariant()
-            : null;
-    }
-
-    private static string ShortAsset(string asset)
-    {
-        var value = asset.Trim();
-        if (value.Contains('.', StringComparison.Ordinal))
-        {
-            value = value.Split('.', 2)[1];
-        }
-
-        return value.Split('-', 2)[0].ToUpperInvariant();
     }
 
     private static List<MakePayExplorerLink> BuildExplorerLinks(MakePayPaymentListItem payment)

@@ -1,0 +1,532 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.MakePay.Models
+@model MakePayStatisticsViewModel
+@{
+    ViewData.SetActivePage("MakePayStatistics", "MakePay", "MakePay Statistics");
+}
+
+<link rel="stylesheet" href="~/vendor/chartist/chartist.css" asp-append-version="true">
+<link rel="stylesheet" href="~/vendor/chartist/chartist-plugin-tooltip.css" asp-append-version="true">
+<script src="~/vendor/chartist/chartist.min.js" asp-append-version="true"></script>
+<script src="~/vendor/chartist/chartist-plugin-tooltip.js" asp-append-version="true"></script>
+
+<div id="makepay-statistics"
+     class="makepay-statistics"
+     data-store-id="@Model.StoreId"
+     data-url="@Model.DataUrl"
+     data-payments-url="@Model.PaymentsUrl"
+     data-invoice-url="@Model.InvoiceUrlTemplate">
+    <div class="sticky-header-setup"></div>
+    <div class="sticky-header d-flex align-items-center justify-content-between gap-3">
+        <div>
+            <h2 class="mb-0">Statistics</h2>
+            <div class="text-secondary small mt-1" data-statistics-sync-status aria-live="polite">
+                Loading saved statistics…
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <div class="btn-group" role="group" aria-label="Statistics period">
+                <input type="radio" class="btn-check" name="makepay-statistics-period"
+                       id="makepay-statistics-7" value="7">
+                <label class="btn btn-outline-secondary" for="makepay-statistics-7">7D</label>
+                <input type="radio" class="btn-check" name="makepay-statistics-period"
+                       id="makepay-statistics-30" value="30" checked>
+                <label class="btn btn-outline-secondary" for="makepay-statistics-30">30D</label>
+                <input type="radio" class="btn-check" name="makepay-statistics-period"
+                       id="makepay-statistics-90" value="90">
+                <label class="btn btn-outline-secondary" for="makepay-statistics-90">90D</label>
+            </div>
+            <button type="button" class="btn btn-secondary d-flex align-items-center gap-2" data-statistics-refresh>
+                <vc:icon symbol="actions-refresh" />
+                <span class="d-none d-sm-inline">Refresh</span>
+            </button>
+        </div>
+    </div>
+
+    <partial name="_StatusMessage" />
+
+    <div class="makepay-stat-grid mb-4" aria-live="polite">
+        <section class="bg-tile rounded p-4 makepay-stat-card">
+            <div class="text-secondary fw-semibold mb-2">Settled volume</div>
+            <div class="h2 mb-1" data-stat-settled-volume>—</div>
+            <div class="small text-secondary" data-stat-volume-change>For the selected period</div>
+        </section>
+        <section class="bg-tile rounded p-4 makepay-stat-card">
+            <div class="text-secondary fw-semibold mb-2">Settled payments</div>
+            <div class="h2 mb-1" data-stat-settled-count>—</div>
+            <div class="small text-secondary" data-stat-success-rate>Success rate —</div>
+        </section>
+        <section class="bg-tile rounded p-4 makepay-stat-card">
+            <div class="text-secondary fw-semibold mb-2">Average payment</div>
+            <div class="h2 mb-1" data-stat-average>—</div>
+            <div class="small text-secondary">Settled payments</div>
+        </section>
+        <section class="bg-tile rounded p-4 makepay-stat-card">
+            <div class="text-secondary fw-semibold mb-2">Processing</div>
+            <div class="h2 mb-1" data-stat-processing-count>—</div>
+            <div class="small text-secondary">Awaiting settlement</div>
+        </section>
+    </div>
+
+    <div class="makepay-chart-grid mb-4">
+        <section class="bg-tile rounded p-4 makepay-chart-card">
+            <header class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                <div>
+                    <h3 class="h5 mb-1">Payment volume</h3>
+                    <div class="text-secondary small" data-stat-volume-caption>Settled volume by day</div>
+                </div>
+            </header>
+            <div class="ct-chart makepay-volume-chart" data-stat-volume-chart aria-label="Payment volume chart"></div>
+            <div class="makepay-chart-empty text-secondary" data-stat-volume-empty hidden>
+                No settled payments in this period.
+            </div>
+        </section>
+        <section class="bg-tile rounded p-4 makepay-chart-card">
+            <header class="mb-3">
+                <h3 class="h5 mb-1">Payment methods</h3>
+                <div class="text-secondary small">All MakePay payment activity</div>
+            </header>
+            <div class="makepay-method-layout">
+                <div class="ct-chart makepay-method-chart" data-stat-method-chart aria-label="Payment method chart"></div>
+                <div class="makepay-method-legend">
+                    <div>
+                        <span class="makepay-legend-dot makepay-legend-cashapp"></span>
+                        <span>Cash App</span>
+                        <strong data-stat-cashapp-count>—</strong>
+                    </div>
+                    <div>
+                        <span class="makepay-legend-dot makepay-legend-crypto"></span>
+                        <span>Crypto</span>
+                        <strong data-stat-crypto-count>—</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="makepay-chart-empty text-secondary" data-stat-method-empty hidden>
+                No payment activity in this period.
+            </div>
+        </section>
+    </div>
+
+    <section class="bg-tile rounded p-4">
+        <header class="d-flex align-items-center justify-content-between gap-3 mb-3">
+            <div>
+                <h3 class="h5 mb-1">Recent MakePay payments</h3>
+                <div class="text-secondary small">Latest activity in the selected period</div>
+            </div>
+            <a href="@Model.PaymentsUrl">View all payments</a>
+        </header>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Invoice</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th class="text-end">Amount</th>
+                </tr>
+                </thead>
+                <tbody data-stat-recent-payments>
+                <tr>
+                    <td colspan="5" class="py-5 text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading statistics…</span>
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<style>
+    .makepay-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .makepay-chart-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+        gap: 1rem;
+    }
+
+    .makepay-stat-card,
+    .makepay-chart-card {
+        min-width: 0;
+    }
+
+    .makepay-volume-chart {
+        height: 18rem;
+    }
+
+    .makepay-method-layout {
+        display: grid;
+        grid-template-columns: minmax(10rem, 1fr) minmax(8rem, auto);
+        align-items: center;
+        gap: 1.5rem;
+        min-height: 18rem;
+    }
+
+    .makepay-method-chart {
+        height: 13rem;
+    }
+
+    .makepay-method-legend {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .makepay-method-legend > div {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: .65rem;
+    }
+
+    .makepay-legend-dot {
+        display: inline-block;
+        width: .75rem;
+        height: .75rem;
+        border-radius: 50%;
+    }
+
+    .makepay-legend-cashapp {
+        background: #00d64f;
+    }
+
+    .makepay-legend-crypto {
+        background: var(--btcpay-primary);
+    }
+
+    .makepay-chart-empty {
+        min-height: 18rem;
+        display: grid;
+        place-items: center;
+    }
+
+    .makepay-chart-empty[hidden] {
+        display: none !important;
+    }
+
+    .makepay-statistics .ct-series-a .ct-line,
+    .makepay-statistics .ct-series-a .ct-point {
+        stroke: var(--btcpay-primary);
+    }
+
+    .makepay-statistics .ct-series-a .ct-area {
+        fill: var(--btcpay-primary);
+        fill-opacity: .12;
+    }
+
+    .makepay-statistics .makepay-method-chart .ct-series-a .ct-slice-donut {
+        stroke: #00d64f;
+    }
+
+    .makepay-statistics .makepay-method-chart .ct-series-b .ct-slice-donut {
+        stroke: var(--btcpay-primary);
+    }
+
+    [data-statistics-refresh][aria-busy="true"] .icon {
+        animation: makepay-stat-spin .8s linear infinite;
+    }
+
+    @@keyframes makepay-stat-spin {
+        to { transform: rotate(360deg); }
+    }
+
+    @@media (max-width: 991.98px) {
+        .makepay-stat-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .makepay-chart-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @@media (max-width: 575.98px) {
+        .makepay-stat-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .makepay-method-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    const root = document.getElementById('makepay-statistics');
+    if (!root) return;
+
+    const dataUrl = root.dataset.url;
+    const storeId = root.dataset.storeId;
+    const invoiceUrlTemplate = root.dataset.invoiceUrl;
+    const refreshButton = root.querySelector('[data-statistics-refresh]');
+    const syncStatus = root.querySelector('[data-statistics-sync-status]');
+    const recentRows = root.querySelector('[data-stat-recent-payments]');
+    const cacheVersion = 'v1';
+    let volumeChart = null;
+    let methodChart = null;
+    let requestNumber = 0;
+    let pollTimer = null;
+
+    function selectedDays() {
+        const selected = root.querySelector('[name="makepay-statistics-period"]:checked');
+        return Number(selected ? selected.value : 30);
+    }
+
+    function cacheKey(days) {
+        return `makepay:statistics:${cacheVersion}:${storeId}:${days}`;
+    }
+
+    function readCache(days) {
+        try {
+            const cached = JSON.parse(localStorage.getItem(cacheKey(days)));
+            if (!cached || !cached.savedAt || Date.now() - cached.savedAt > 24 * 60 * 60 * 1000) return null;
+            return cached.data;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function writeCache(days, data) {
+        try {
+            localStorage.setItem(cacheKey(days), JSON.stringify({ savedAt: Date.now(), data }));
+        } catch (_) {
+            // Storage is an enhancement, never a requirement.
+        }
+    }
+
+    function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = text;
+        return node;
+    }
+
+    function formatMoney(value, currency) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return `0 ${currency}`;
+        try {
+            return new Intl.NumberFormat(undefined, {
+                style: 'currency',
+                currency,
+                maximumFractionDigits: currency === 'BTC' ? 8 : 2
+            }).format(numeric);
+        } catch (_) {
+            return `${new Intl.NumberFormat(undefined, {
+                maximumFractionDigits: currency === 'BTC' ? 8 : 2
+            }).format(numeric)} ${currency}`;
+        }
+    }
+
+    function statusClass(status) {
+        if (status === 'Settled') return 'bg-success';
+        if (status === 'Processing') return 'bg-warning text-dark';
+        return 'bg-secondary';
+    }
+
+    function short(value, start = 7, end = 7) {
+        if (!value || value.length <= start + end + 1) return value || '';
+        return `${value.slice(0, start)}…${value.slice(-end)}`;
+    }
+
+    function renderRecent(data) {
+        recentRows.replaceChildren();
+        if (!data.recentPayments || !data.recentPayments.length) {
+            const row = element('tr');
+            const cell = element('td', 'text-secondary py-5 text-center', 'No MakePay payments in this period.');
+            cell.colSpan = 5;
+            row.append(cell);
+            recentRows.append(row);
+            return;
+        }
+
+        data.recentPayments.forEach(payment => {
+            const row = element('tr');
+            const date = element('td', 'text-nowrap', new Intl.DateTimeFormat(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+            }).format(new Date(payment.created)));
+            const invoice = element('td');
+            const link = element('a', '', short(payment.invoiceId));
+            link.href = invoiceUrlTemplate.replace('__invoiceId__', encodeURIComponent(payment.invoiceId));
+            link.title = payment.invoiceId;
+            invoice.append(link);
+            if (payment.orderId) invoice.append(element('div', 'small text-secondary', payment.orderId));
+            const method = element(
+                'td',
+                '',
+                payment.paymentMethod === 'cash_app_onramp' ? 'Cash App' : 'Crypto');
+            const status = element('td');
+            status.append(element('span', `badge rounded-pill ${statusClass(payment.status)}`, payment.status));
+            const amount = element('td', 'text-end text-nowrap', `${payment.amount} ${payment.currency}`);
+            amount.setAttribute('data-sensitive', '');
+            row.append(date, invoice, method, status, amount);
+            recentRows.append(row);
+        });
+    }
+
+    function renderCharts(data) {
+        const volumeContainer = root.querySelector('[data-stat-volume-chart]');
+        const methodContainer = root.querySelector('[data-stat-method-chart]');
+        const volumeEmpty = root.querySelector('[data-stat-volume-empty]');
+        const methodEmpty = root.querySelector('[data-stat-method-empty]');
+        const hasVolume = data.series.some(point => Number(point.volume) > 0);
+        const hasMethods = data.cashAppCount + data.cryptoCount > 0;
+
+        volumeContainer.hidden = !hasVolume;
+        volumeEmpty.hidden = hasVolume;
+        methodContainer.hidden = !hasMethods;
+        methodEmpty.hidden = hasMethods;
+
+        if (volumeChart) volumeChart.detach();
+        if (methodChart) methodChart.detach();
+        if (typeof Chartist === 'undefined') return;
+
+        if (hasVolume) {
+            const labelEvery = Math.max(1, Math.ceil(data.series.length / 6));
+            const safeCurrency = String(data.currency || '').replace(/[^A-Z0-9]/gi, '').slice(0, 12);
+            const tooltip = Chartist.plugins && Chartist.plugins.tooltip2
+                ? Chartist.plugins.tooltip2({
+                    template: `<div class="chartist-tooltip-inner">{{value}} ${safeCurrency}</div>`,
+                    offset: { x: 0, y: -8 }
+                })
+                : null;
+            volumeChart = new Chartist.Line(volumeContainer, {
+                labels: data.series.map(point => point.date),
+                series: [data.series.map(point => Number(point.volume))]
+            }, {
+                low: 0,
+                fullWidth: true,
+                showArea: true,
+                showPoint: data.series.length <= 30,
+                axisX: {
+                    labelInterpolationFnc(value, index) {
+                        return index % labelEvery === 0
+                            ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+                                .format(new Date(`${value}T00:00:00Z`))
+                            : null;
+                    }
+                },
+                axisY: {
+                    labelInterpolationFnc(value) {
+                        return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value);
+                    }
+                },
+                plugins: tooltip ? [tooltip] : []
+            });
+        }
+
+        if (hasMethods) {
+            methodChart = new Chartist.Pie(methodContainer, {
+                series: [data.cashAppCount, data.cryptoCount]
+            }, {
+                donut: true,
+                donutWidth: 20,
+                showLabel: false,
+                chartPadding: 8
+            });
+        }
+    }
+
+    function render(data, cached) {
+        root.querySelector('[data-stat-settled-volume]').textContent =
+            formatMoney(data.settledVolume, data.currency);
+        root.querySelector('[data-stat-settled-count]').textContent =
+            new Intl.NumberFormat().format(data.settledCount);
+        root.querySelector('[data-stat-average]').textContent =
+            formatMoney(data.averagePayment, data.currency);
+        root.querySelector('[data-stat-processing-count]').textContent =
+            new Intl.NumberFormat().format(data.processingCount);
+        root.querySelector('[data-stat-success-rate]').textContent =
+            `Success rate ${data.successRate}%`;
+        root.querySelector('[data-stat-cashapp-count]').textContent =
+            new Intl.NumberFormat().format(data.cashAppCount);
+        root.querySelector('[data-stat-crypto-count]').textContent =
+            new Intl.NumberFormat().format(data.cryptoCount);
+        root.querySelector('[data-stat-volume-caption]').textContent =
+            `${data.currency} settled volume by day`;
+
+        const change = root.querySelector('[data-stat-volume-change]');
+        if (data.volumeChangePercent === null || data.volumeChangePercent === undefined) {
+            change.textContent = `Last ${data.days} days`;
+            change.className = 'small text-secondary';
+        } else {
+            const positive = Number(data.volumeChangePercent) >= 0;
+            change.textContent = `${positive ? '+' : ''}${data.volumeChangePercent}% vs previous period`;
+            change.className = `small ${positive ? 'text-success' : 'text-danger'}`;
+        }
+
+        renderCharts(data);
+        renderRecent(data);
+
+        if (cached) {
+            syncStatus.textContent = 'Showing saved statistics while checking for updates…';
+        } else if (data.isRefreshing) {
+            syncStatus.textContent = 'Statistics are current · refreshing quietly in the background…';
+        } else {
+            const updated = new Intl.DateTimeFormat(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit'
+            }).format(new Date(data.fetchedAt));
+            syncStatus.textContent = `Updated ${updated}`;
+        }
+    }
+
+    async function load(forceRefresh, pollAttempt = 0) {
+        const days = selectedDays();
+        const currentRequest = ++requestNumber;
+        refreshButton.setAttribute('aria-busy', 'true');
+        refreshButton.disabled = true;
+
+        try {
+            const url = new URL(dataUrl, window.location.origin);
+            url.searchParams.set('days', days.toString());
+            if (forceRefresh) url.searchParams.set('refresh', 'true');
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+                cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Unable to load MakePay statistics.');
+            if (currentRequest !== requestNumber) return;
+            writeCache(days, data);
+            render(data, false);
+            window.clearTimeout(pollTimer);
+            if (data.isRefreshing && pollAttempt < 5) {
+                pollTimer = window.setTimeout(() => load(false, pollAttempt + 1), 1000);
+            }
+        } catch (error) {
+            if (currentRequest === requestNumber) {
+                syncStatus.textContent = `${error.message} Saved statistics remain visible when available.`;
+            }
+        } finally {
+            if (currentRequest === requestNumber) {
+                refreshButton.removeAttribute('aria-busy');
+                refreshButton.disabled = false;
+            }
+        }
+    }
+
+    root.querySelectorAll('[name="makepay-statistics-period"]').forEach(input => {
+        input.addEventListener('change', () => {
+            const cached = readCache(selectedDays());
+            if (cached) render(cached, true);
+            load(false);
+        });
+    });
+    refreshButton.addEventListener('click', () => load(true));
+
+    const cached = readCache(selectedDays());
+    if (cached) render(cached, true);
+    load(false);
+})();
+</script>

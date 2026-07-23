@@ -42,7 +42,7 @@
         <a permission="@Policies.CanModifyStoreSettings"
            layout-menu-item="MakePay"
            asp-controller="MakePay"
-           asp-action="Payments"
+           asp-action="Statistics"
            asp-route-storeId="@storeId">
             <span class="me-2 btcpay-status btcpay-status--@status"></span>
             <span>MakePay</span>
@@ -50,6 +50,15 @@
     </li>
     @if (isMakePayActive)
     {
+        <li class="nav-item nav-item-sub">
+            <a permission="@Policies.CanModifyStoreSettings"
+               layout-menu-item="MakePayStatistics"
+               asp-controller="MakePay"
+               asp-action="Statistics"
+               asp-route-storeId="@storeId">
+                <span>Statistics</span>
+            </a>
+        </li>
         <li class="nav-item nav-item-sub">
             <a permission="@Policies.CanModifyStoreSettings"
                layout-menu-item="MakePayPayments"
