@@ -25,6 +25,12 @@
     </ProjectReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\BTCPayServer.Plugins.MakePay\Views\Shared\MakePay\CheckoutPaymentMethodExtension.cshtml"
+          Link="Fixtures\CheckoutPaymentMethodExtension.cshtml"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <Target Name="CopyBTCPayServerRuntime" AfterTargets="Build">
     <Copy SourceFiles="../submodules/btcpayserver/BTCPayServer/bin/$(Configuration)/net8.0/BTCPayServer.dll"
           DestinationFolder="$(OutputPath)"

@@ -98,6 +98,50 @@
         min-width: 0;
     }
 
+    .makepay-checkout .makepay-cash-app-summary {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        min-width: 0;
+    }
+
+    .makepay-checkout .makepay-cash-app-transfer {
+        width: 100%;
+        max-width: 30rem;
+        margin: 0 auto;
+    }
+
+    .makepay-checkout .makepay-cash-app-qr {
+        display: inline-flex;
+        padding: .75rem;
+        border-radius: .75rem;
+        background: #fff;
+        line-height: 0;
+    }
+
+    .makepay-checkout .makepay-cash-app-status {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        border: 1px solid var(--btcpay-border-color, #dee2e6);
+        border-radius: 999px;
+        padding: .35rem .7rem;
+        font-size: .875rem;
+    }
+
+    .makepay-checkout .makepay-cash-app-status-dot {
+        width: .5rem;
+        height: .5rem;
+        border-radius: 50%;
+        background: #00d64f;
+    }
+
+    .makepay-checkout .makepay-cash-app-request {
+        max-height: 4.5rem;
+        overflow: hidden;
+        font-size: .75rem;
+    }
+
     @@media (max-width: 420px) {
         .makepay-checkout .makepay-option > span {
             grid-template-columns: 2.5rem minmax(0, 1fr);
@@ -117,7 +161,48 @@
         <div v-if="success" class="alert alert-success mb-3">{{ success }}</div>
 
         <div v-if="entryStep">
-            <div v-if="!selectedCurrency">
+            <div v-if="isCashAppPayment">
+                <button type="button"
+                        class="btn btn-sm btn-link makepay-back p-0 mb-3"
+                        v-on:click="exitCashApp"
+                        :disabled="isBusy">
+                    &larr; Back to payment methods
+                </button>
+
+                <div class="border rounded p-3 mb-3">
+                    <div class="makepay-cash-app-summary">
+                        <span class="makepay-token-fallback makepay-cash-app-icon">$</span>
+                        <span class="min-w-0">
+                            <span class="d-block fw-semibold">Pay with Cash App</span>
+                            <span class="d-block text-muted small">Use your USD balance, linked card, or Cash App funding source.</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div v-if="requestReceiptEmailFromCustomer" class="mb-3">
+                    <label class="form-label" for="makepay-cash-app-receipt-email">Receipt email</label>
+                    <input id="makepay-cash-app-receipt-email"
+                           class="form-control"
+                           type="email"
+                           autocomplete="email"
+                           v-model.trim="receiptEmail"
+                           v-on:input="resetQuote" />
+                </div>
+
+                <div class="d-grid mb-3">
+                    <button type="button"
+                            class="btn btn-primary rounded-pill"
+                            v-on:click="pay"
+                            :disabled="payButtonDisabled">
+                        {{ displayQuoteApproval ? 'Review Cash App quote' : 'Continue to Cash App' }}
+                    </button>
+                </div>
+                <p class="small text-muted mb-0">
+                    Available to eligible US payers. The final customer debit must not exceed $950.
+                </p>
+            </div>
+
+            <div v-else-if="!selectedCurrency">
                 <div v-if="cashAppOffered" class="mb-4">
                     <label class="form-label">Pay with Cash App</label>
                     <button type="button"
@@ -128,7 +213,7 @@
                             <span class="makepay-token-fallback makepay-cash-app-icon">$</span>
                             <span class="flex-grow-1 min-w-0">
                                 <span class="d-block fw-semibold">Cash App</span>
-                                <span class="d-block text-muted text-truncate">US payers · Hosted securely by MakePay</span>
+                                <span class="d-block text-muted text-truncate">US payers · Pay securely in Cash App</span>
                             </span>
                             <span v-if="cashAppAmountLabel" class="makepay-option-meta text-muted small">
                                 {{ cashAppAmountLabel }}
@@ -272,7 +357,7 @@
                     </div>
                 </div>
 
-                <div class="text-muted small">You send</div>
+                <div class="text-muted small">{{ isCashAppPayment ? 'You pay' : 'You send' }}</div>
                 <div class="h4 mb-2 text-break">{{ quoteAmount }} {{ quoteAssetLabel }}</div>
 
                 <div class="d-flex align-items-center justify-content-between gap-3 small">
@@ -297,6 +382,58 @@
             </div>
         </div>
 
+        <div v-else-if="paymentStarted && isCashAppPayment"
+             class="makepay-cash-app-transfer text-center">
+            <div class="makepay-cash-app-summary justify-content-center mb-3">
+                <span class="makepay-token-fallback makepay-cash-app-icon">$</span>
+                <span class="text-start">
+                    <span class="d-block fw-semibold">Pay with Cash App</span>
+                    <span class="d-block text-muted small">Complete the payment in Cash App</span>
+                </span>
+            </div>
+
+            <div class="mb-3">
+                <div class="text-muted small">Amount due</div>
+                <div class="h4 mb-1">{{ quoteAmount }} USD</div>
+                <div v-if="paymentCountdownLabel" class="small text-muted">{{ paymentCountdownLabel }}</div>
+            </div>
+
+            <div class="mb-3">
+                <span class="makepay-cash-app-status">
+                    <span class="makepay-cash-app-status-dot"></span>
+                    {{ cashAppStatusLabel }}
+                </span>
+            </div>
+
+            <div v-if="cashAppQrValue" class="mb-3">
+                <div class="makepay-cash-app-qr">
+                    <qrcode :value="cashAppQrValue" :options="qrOptions"></qrcode>
+                </div>
+                <div class="small text-muted mt-2">Scan with your phone to open Cash App</div>
+            </div>
+
+            <div v-if="cashAppOpenUrl" class="d-grid mb-3">
+                <a class="btn btn-primary rounded-pill"
+                   :href="cashAppOpenUrl"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    Open Cash App
+                </a>
+            </div>
+
+            <p class="small text-muted mb-2">
+                Keep this invoice open. Payment status updates here automatically.
+            </p>
+            <code v-if="cashAppPaymentRequest"
+                  class="makepay-cash-app-request d-block text-break user-select-all mb-2">{{ cashAppPaymentRequest }}</code>
+            <button v-if="cashAppPaymentRequest"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    v-on:click="copyAddress">
+                {{ copied ? 'Copied' : 'Copy payment request' }}
+            </button>
+        </div>
+
         <div v-else-if="paymentStarted" class="text-center">
             <div class="mb-3">
                 <div class="text-muted small">Send exactly</div>
@@ -305,8 +442,7 @@
             </div>
 
             <div class="mb-3">
-                <img v-if="cashAppQrCodeUrl" :src="cashAppQrCodeUrl" alt="" class="img-fluid rounded" />
-                <qrcode v-else-if="qrValue" :value="qrValue" :options="qrOptions"></qrcode>
+                <qrcode v-if="qrValue" :value="qrValue" :options="qrOptions"></qrcode>
             </div>
 
             <div class="text-muted small mb-2">Payment address</div>
@@ -316,7 +452,7 @@
             </button>
         </div>
 
-        <div v-if="status" class="mt-3 small text-muted text-center">
+        <div v-if="status && !isCashAppPayment" class="mt-3 small text-muted text-center">
             Status: {{ status }}
         </div>
 
@@ -345,6 +481,7 @@
             return {
                 tokens: [],
                 capabilities: null,
+                selectedPaymentMethod: 'crypto',
                 selectedCurrency: '',
                 selectedAsset: '',
                 assetSearch: '',
@@ -358,6 +495,8 @@
                 depositAddress: '',
                 qrValue: '',
                 cashAppQrCodeUrl: '',
+                cashAppDeepLink: '',
+                cashAppPaymentRequest: '',
                 paymentExpiresAtMs: 0,
                 status: '',
                 error: '',
@@ -387,8 +526,32 @@
                     '/' +
                     encodeURIComponent(this.model.invoiceId);
             },
+            cashAppApiBase: function () {
+                try {
+                    var target = new URL(
+                        String(this.model.makePayCheckoutBaseUrl || this.model.makePayPaymentLinkUrl || ''),
+                        window.location.href
+                    );
+                    if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+                        return '';
+                    }
+
+                    var uid = String(this.model.makePayPaymentLinkUid || '').trim();
+                    return uid
+                        ? target.origin +
+                            '/api/public/payment-links/' +
+                            encodeURIComponent(uid) +
+                            '/btcpay-checkout'
+                        : '';
+                } catch (err) {
+                    return '';
+                }
+            },
             entryStep: function () {
                 return !this.awaitingConfirmation && !this.paymentStarted;
+            },
+            isCashAppPayment: function () {
+                return this.selectedPaymentMethod === 'cash_app_onramp';
             },
             displayQuoteApproval: function () {
                 return this.model.makePayDisplayQuoteApproval !== false;
@@ -415,6 +578,42 @@
                 return Number.isFinite(amount) && amount > 0
                     ? '$' + amount.toFixed(2)
                     : '';
+            },
+            cashAppQrValue: function () {
+                return this.cashAppDeepLink ||
+                    this.cashAppQrCodeUrl ||
+                    this.cashAppPaymentRequest ||
+                    '';
+            },
+            cashAppOpenUrl: function () {
+                var value = String(this.cashAppDeepLink || '').trim();
+                if (!value) {
+                    return '';
+                }
+
+                try {
+                    var target = new URL(value);
+                    return target.protocol === 'https:' || target.protocol === 'cashapp:'
+                        ? target.toString()
+                        : '';
+                } catch (err) {
+                    return '';
+                }
+            },
+            cashAppStatusLabel: function () {
+                var labels = {
+                    quoted: 'Quote ready',
+                    awaiting_deposit: 'Waiting for Cash App',
+                    pending: 'Payment pending',
+                    deposit_received: 'Payment received',
+                    swapping: 'Converting payment',
+                    sending: 'Sending settlement',
+                    complete: 'Payment complete',
+                    expired: 'Payment expired',
+                    failed: 'Payment failed',
+                    cancelled: 'Payment cancelled'
+                };
+                return labels[this.status] || 'Waiting for payment';
             },
             refundAddressMode: function () {
                 return this.model.makePayRefundAddressMode === 'payer_entered'
@@ -508,6 +707,9 @@
                 }) || null;
             },
             selectedTokenLabel: function () {
+                if (this.isCashAppPayment) {
+                    return 'Cash App';
+                }
                 if (!this.selectedToken) {
                     return this.selectedAsset;
                 }
@@ -520,7 +722,7 @@
                     : 'the selected network';
             },
             shouldCollectRefundAddress: function () {
-                if (!this.selectedToken) {
+                if (this.isCashAppPayment || !this.selectedToken) {
                     return false;
                 }
 
@@ -533,6 +735,9 @@
                     : '';
             },
             quoteAssetLabel: function () {
+                if (this.isCashAppPayment) {
+                    return 'USD';
+                }
                 return this.shortAssetLabel(this.quoteAsset || this.selectedAsset);
             },
             quoteSecondsRemaining: function () {
@@ -564,14 +769,17 @@
                     : 'Payment window expired';
             },
             reviewButtonText: function () {
-                return this.quoteExpired ? 'Refreshing quote...' : 'Confirm and pay';
+                if (this.quoteExpired) {
+                    return 'Refreshing quote...';
+                }
+                return this.isCashAppPayment ? 'Continue to Cash App' : 'Confirm and pay';
             },
             payButtonDisabled: function () {
                 return this.isBusy ||
-                    !this.selectedAsset ||
+                    (!this.isCashAppPayment && !this.selectedAsset) ||
                     (this.shouldCollectRefundAddress && !this.refundAddress.trim()) ||
                     this.status === 'complete' ||
-                    this.tokens.length === 0;
+                    (!this.isCashAppPayment && this.tokens.length === 0);
             }
         },
         mounted: function () {
@@ -699,8 +907,14 @@
                     }
 
                     this.quoteSessionId = String(session.sessionId);
-                    this.selectedAsset = String(session.selectedSellAsset || session.sellAsset || this.selectedAsset || '');
-                    this.syncSelectedCurrencyFromAsset();
+                    this.selectedPaymentMethod =
+                        session.paymentMethod === 'cash_app_onramp' || session.cashApp
+                            ? 'cash_app_onramp'
+                            : 'crypto';
+                    if (!this.isCashAppPayment) {
+                        this.selectedAsset = String(session.selectedSellAsset || session.sellAsset || this.selectedAsset || '');
+                        this.syncSelectedCurrencyFromAsset();
+                    }
                     this.awaitingConfirmation = false;
                     this.paymentStarted = !!(session.deposit || session.cashApp);
                     this.applyPaymentState(session);
@@ -716,29 +930,39 @@
                 }
             },
             selectCurrency: function (currency) {
+                this.selectedPaymentMethod = 'crypto';
                 this.selectedCurrency = currency;
                 this.selectedAsset = '';
                 this.assetSearch = '';
                 this.refundAddress = '';
                 this.resetQuote();
             },
-            openCashApp: function () {
+            openCashApp: async function () {
                 if (!this.cashAppOffered) {
                     return;
                 }
 
-                try {
-                    var target = new URL(String(this.model.makePayPaymentLinkUrl || ''), window.location.href);
-                    if (target.protocol !== 'https:' && target.protocol !== 'http:') {
-                        throw new Error('Invalid MakePay checkout URL.');
-                    }
-                    target.searchParams.set('paymentMethod', 'cash_app_onramp');
-                    window.location.assign(target.toString());
-                } catch (err) {
-                    this.error = err && err.message ? err.message : 'Unable to open Cash App checkout.';
+                this.resetQuote();
+                this.selectedPaymentMethod = 'cash_app_onramp';
+                this.selectedCurrency = '';
+                this.selectedAsset = '';
+                this.refundAddress = '';
+
+                if (!this.cashAppApiBase) {
+                    this.error = 'Cash App checkout is temporarily unavailable.';
+                    return;
+                }
+
+                if (!this.requestReceiptEmailFromCustomer) {
+                    await this.pay();
                 }
             },
+            exitCashApp: function () {
+                this.resetQuote();
+                this.selectedPaymentMethod = 'crypto';
+            },
             selectNetwork: function (identifier) {
+                this.selectedPaymentMethod = 'crypto';
                 this.selectedAsset = identifier;
                 this.syncSelectedCurrencyFromAsset();
                 this.refundAddress = '';
@@ -859,11 +1083,20 @@
                     return updatedAtMs + refreshInSeconds * 1000;
                 }
 
+                var cashAppExpiresAtMs = this.parseDateMs(
+                    payload && payload.cashApp &&
+                    (payload.cashApp.paymentWindowExpiresAt || payload.cashApp.expiresAt)
+                );
+                if (cashAppExpiresAtMs) {
+                    return cashAppExpiresAtMs;
+                }
+
                 var expiresAtMs = this.parseDateMs(payload && payload.expiresAt);
                 return expiresAtMs || Date.now() + 60000;
             },
             currentQuoteKey: function () {
                 return [
+                    this.selectedPaymentMethod,
                     this.selectedAsset,
                     this.receiptEmailForQuote(),
                     this.paymentRefundAddress,
@@ -879,6 +1112,8 @@
                 this.depositAddress = '';
                 this.qrValue = '';
                 this.cashAppQrCodeUrl = '';
+                this.cashAppDeepLink = '';
+                this.cashAppPaymentRequest = '';
                 this.paymentExpiresAtMs = 0;
                 this.status = '';
                 this.error = '';
@@ -897,7 +1132,12 @@
                 return /^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(value);
             },
             validateInput: function () {
-                if (!this.selectedAsset) {
+                if (this.isCashAppPayment && !this.cashAppApiBase) {
+                    this.error = 'Cash App checkout is temporarily unavailable.';
+                    return false;
+                }
+
+                if (!this.isCashAppPayment && !this.selectedAsset) {
                     this.error = this.selectedCurrency ? 'Select a network.' : 'Select a currency.';
                     return false;
                 }
@@ -920,6 +1160,17 @@
                 return true;
             },
             buildPaymentBody: function () {
+                if (this.isCashAppPayment) {
+                    var cashAppBody = {
+                        paymentMethod: 'cash_app_onramp',
+                        provider: 'flashnet'
+                    };
+                    if (this.requestReceiptEmailFromCustomer) {
+                        cashAppBody.receiptEmail = this.receiptEmailForQuote();
+                    }
+                    return cashAppBody;
+                }
+
                 var body = {
                     sellAsset: this.selectedAsset,
                     paymentMethod: 'crypto'
@@ -935,6 +1186,11 @@
                 }
 
                 return body;
+            },
+            paymentApiUrl: function (operation) {
+                return this.isCashAppPayment
+                    ? this.cashAppApiBase + '/' + operation
+                    : this.apiBase + '/' + operation;
             },
             pay: async function () {
                 if (this.awaitingConfirmation) {
@@ -979,9 +1235,10 @@
                 this.error = '';
                 this.isBusy = true;
                 try {
-                    var response = await fetch(this.apiBase + '/quote', {
+                    var response = await fetch(this.paymentApiUrl('quote'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: this.isCashAppPayment ? 'omit' : 'same-origin',
                         body: JSON.stringify(this.buildPaymentBody())
                     });
                     var payload = await this.parseFetchPayload(response, 'Unable to quote payment.');
@@ -992,6 +1249,7 @@
                     this.quoteKey = this.currentQuoteKey();
                     this.status = payload.status || 'quoted';
                     this.applyQuotedAmounts(payload);
+                    this.applyCashAppState(payload.cashApp);
                     this.quoteExpiresAtMs = this.resolveQuoteExpiry(payload);
                     this.awaitingConfirmation = showConfirmation !== false;
                     this.nowMs = Date.now();
@@ -1012,11 +1270,14 @@
                 this.error = '';
                 this.isBusy = true;
                 try {
-                    var body = this.buildPaymentBody();
+                    var body = this.isCashAppPayment
+                        ? { sessionId: this.quoteSessionId }
+                        : this.buildPaymentBody();
                     body.sessionId = this.quoteSessionId;
-                    var response = await fetch(this.apiBase + '/start', {
+                    var response = await fetch(this.paymentApiUrl('start'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: this.isCashAppPayment ? 'omit' : 'same-origin',
                         body: JSON.stringify(body)
                     });
                     var payload = await this.parseFetchPayload(response, 'Unable to start payment.');
@@ -1042,6 +1303,13 @@
                 }
             },
             applyQuotedAmounts: function (payload) {
+                var cashAppAmount = payload.cashApp && Number(payload.cashApp.amountFiatUsd);
+                if (Number.isFinite(cashAppAmount) && cashAppAmount > 0) {
+                    this.quoteAmount = cashAppAmount.toFixed(2);
+                    this.quoteAsset = 'USD';
+                    return;
+                }
+
                 var payableAmount = payload.payable && (payload.payable.requiredSellAmount || payload.payable.displayRequiredSellAmount);
                 if (payableAmount) {
                     this.quoteAmount = String(payableAmount);
@@ -1061,12 +1329,37 @@
                     }
                 }
             },
+            applyCashAppState: function (cashApp) {
+                if (!cashApp) {
+                    return;
+                }
+
+                this.selectedPaymentMethod = 'cash_app_onramp';
+                this.cashAppDeepLink = String(cashApp.deepLink || this.cashAppDeepLink || '');
+                this.cashAppQrCodeUrl = String(cashApp.qrCodeUrl || this.cashAppQrCodeUrl || '');
+                this.cashAppPaymentRequest = String(cashApp.paymentRequest || this.cashAppPaymentRequest || '');
+                this.depositAddress = this.cashAppPaymentRequest || this.depositAddress;
+                this.qrValue = this.cashAppQrValue || this.qrValue;
+
+                var cashAppAmount = Number(cashApp.amountFiatUsd);
+                if (Number.isFinite(cashAppAmount) && cashAppAmount > 0) {
+                    this.quoteAmount = cashAppAmount.toFixed(2);
+                    this.quoteAsset = 'USD';
+                }
+
+                this.paymentExpiresAtMs =
+                    this.parseDateMs(cashApp.paymentWindowExpiresAt || cashApp.expiresAt) ||
+                    this.paymentExpiresAtMs;
+            },
             applyPaymentState: function (payload) {
                 payload = this.sessionPayload(payload) || {};
                 if (payload.sessionId) {
                     this.quoteSessionId = String(payload.sessionId);
                 }
-                if (payload.selectedSellAsset && !this.selectedAsset) {
+                if (payload.paymentMethod === 'cash_app_onramp' || payload.cashApp) {
+                    this.selectedPaymentMethod = 'cash_app_onramp';
+                }
+                if (!this.isCashAppPayment && payload.selectedSellAsset && !this.selectedAsset) {
                     this.selectedAsset = String(payload.selectedSellAsset);
                     this.syncSelectedCurrencyFromAsset();
                 }
@@ -1082,14 +1375,14 @@
                         this.depositAddress;
                 }
                 if (payload.cashApp) {
-                    this.cashAppQrCodeUrl = payload.cashApp.qrCodeUrl || this.cashAppQrCodeUrl;
-                    this.depositAddress = payload.cashApp.paymentRequest || this.depositAddress;
-                    this.qrValue = payload.cashApp.paymentRequest || this.qrValue;
+                    this.applyCashAppState(payload.cashApp);
                 }
                 if (this.status === 'complete') {
                     this.success = 'Payment complete.';
                     this.stopPolling();
                     setTimeout(function () { window.location.reload(); }, 1500);
+                } else if (['expired', 'failed', 'cancelled'].indexOf(this.status) >= 0) {
+                    this.stopPolling();
                 }
             },
             startPolling: function (sessionId) {
